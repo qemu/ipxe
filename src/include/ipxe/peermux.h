@@ -18,6 +18,9 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #include <ipxe/xferbuf.h>
 #include <ipxe/pccrc.h>
 
+/** Minimum number of concurrent block downloads */
+#define PEERMUX_MIN_BLOCKS 2
+
 /** Maximum number of concurrent block downloads */
 #define PEERMUX_MAX_BLOCKS 32
 
@@ -69,6 +72,10 @@ struct peerdist_multiplexer {
 
 	/** Block download initiation process */
 	struct process process;
+	/** Number of concurrent block downloads */
+	unsigned int count;
+	/** Maximum number of concurrent block downloads */
+	unsigned int limit;
 	/** List of busy block downloads */
 	struct list_head busy;
 	/** List of idle block downloads */

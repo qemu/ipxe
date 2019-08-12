@@ -92,7 +92,8 @@ static int peermux_progress ( struct peerdist_multiplexer *peermux,
 	if ( stats->total ) {
 		percentage = ( ( 100 * stats->local ) / stats->total );
 		snprintf ( progress->message, sizeof ( progress->message ),
-			   "%3d%% from %d peers", percentage, stats->peers );
+			   "%3d%% from %d peers (x%d)", percentage,
+			   stats->peers, peermux->limit );
 	}
 
 	return 0;
@@ -184,13 +185,16 @@ static void peermux_step ( struct peerdist_multiplexer *peermux ) {
 	unsigned int next_block;
 	int rc;
 
-	/* Stop initiation process if all block downloads are busy */
-	peermblk = list_first_entry ( &peermux->idle,
-				      struct peerdist_multiplexed_block, list );
-	if ( ! peermblk ) {
+	/* Stop initiation process if we have reached the concurrency limit */
+	if ( peermux->count >= peermux->limit ) {
 		process_del ( &peermux->process );
 		return;
 	}
+
+	/* Get next available idle block download */
+	peermblk = list_first_entry ( &peermux->idle,
+				      struct peerdist_multiplexed_block, list );
+	assert ( peermblk != NULL );
 
 	/* Increment block index */
 	next_block = ( block->index + 1 );
@@ -251,6 +255,7 @@ static void peermux_step ( struct peerdist_multiplexer *peermux ) {
 	/* Move to list of busy block downloads */
 	list_del ( &peermblk->list );
 	list_add_tail ( &peermblk->list, &peermux->busy );
+	peermux->count++;
 
 	return;
 
@@ -319,12 +324,19 @@ static void peermux_block_stat ( struct peerdist_multiplexed_block *peermblk,
 	if ( count > stats->peers )
 		stats->peers = count;
 
-	/* Update block counts */
-	if ( peer )
+	/* Update block counts and concurrency limit */
+	if ( peer ) {
 		stats->local++;
+		if ( peermux->limit < PEERMUX_MAX_BLOCKS )
+			peermux->limit++;
+	} else {
+		if ( peermux->limit > PEERMUX_MIN_BLOCKS )
+			peermux->limit--;
+	}
 	stats->total++;
-	DBGC2 ( peermux, "PEERMUX %p downloaded %d/%d from %d peers\n",
-		peermux, stats->local, stats->total, stats->peers );
+	DBGC2 ( peermux, "PEERMUX %p downloaded %d/%d from %d peers (x%d)\n",
+		peermux, stats->local, stats->total, stats->peers,
+		peermux->limit );
 }
 
 /**
@@ -340,6 +352,7 @@ static void peermux_block_close ( struct peerdist_multiplexed_block *peermblk,
 	/* Move to list of idle downloads */
 	list_del ( &peermblk->list );
 	list_add_tail ( &peermblk->list, &peermux->idle );
+	peermux->count--;
 
 	/* If any error occurred, terminate the whole multiplexer */
 	if ( rc != 0 ) {
@@ -426,6 +439,7 @@ int peermux_filter ( struct interface *xfer, struct interface *info,
 			       &peermux->cache.info.raw.data );
 	process_init_stopped ( &peermux->process, &peermux_process_desc,
 			       &peermux->refcnt );
+	peermux->limit = PEERMUX_MIN_BLOCKS;
 	INIT_LIST_HEAD ( &peermux->busy );
 	INIT_LIST_HEAD ( &peermux->idle );
 	for ( i = 0 ; i < PEERMUX_MAX_BLOCKS ; i++ ) {
