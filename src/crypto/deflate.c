@@ -297,6 +297,19 @@ static int deflate_alphabet ( struct deflate *deflate,
 }
 
 /**
+ * Reset state
+ *
+ * @v deflate		Decompressor
+ */
+static void deflate_reset ( struct deflate *deflate ) {
+
+	deflate->resume = NULL;
+	deflate->bits = 0;
+	deflate->accumulator = 0;
+	deflate->rotalumucca = 0;
+}
+
+/**
  * Attempt to accumulate bits from input stream
  *
  * @v deflate		Decompressor
@@ -985,7 +998,7 @@ int deflate_inflate ( struct deflate *deflate,
  finished: {
 		/* Mark as finished and terminate */
 		DBGCP ( deflate, "DEFLATE %p finished\n", deflate );
-		deflate->resume = NULL;
+		deflate_reset ( deflate );
 		return 0;
 	}
 }
