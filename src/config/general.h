@@ -156,6 +156,7 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 //#define NTP_CMD		/* NTP commands */
 //#define CERT_CMD		/* Certificate management commands */
 //#define IMAGE_MEM_CMD		/* Read memory command */
+//#define IMAGE_EXTRACT_CMD	/* Image extraction command */
 
 /*
  * ROM-specific options

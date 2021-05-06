@@ -284,6 +284,9 @@ REQUIRE_OBJECT ( cert_cmd );
 #ifdef IMAGE_MEM_CMD
 REQUIRE_OBJECT ( image_mem_cmd );
 #endif
+#ifdef IMAGE_EXTRACT_CMD
+REQUIRE_OBJECT ( image_extract_cmd );
+#endif
 
 /*
  * Drag in miscellaneous objects

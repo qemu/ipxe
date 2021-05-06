@@ -190,3 +190,23 @@ int imgmem ( const char *name, userptr_t data, size_t len ) {
 
 	return 0;
 }
+
+/**
+ * Extract archive image
+ *
+ * @v image		Image
+ * @v name		Extracted image name (or NULL to use default)
+ * @ret rc		Return status code
+ */
+int imgextract ( struct image *image, const char *name ) {
+	struct image *extracted;
+	int rc;
+
+	/* Extract archive image */
+	if ( ( rc = image_extract ( image, name, &extracted ) ) != 0 ) {
+		printf ( "Could not extract image: %s\n", strerror ( rc ) );
+		return rc;
+	}
+
+	return 0;
+}
