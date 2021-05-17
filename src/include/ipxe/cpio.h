@@ -9,6 +9,8 @@
 
 FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 
+#include <ipxe/image.h>
+
 /** A CPIO archive header
  *
  * All field are hexadecimal ASCII numbers padded with '0' on the
@@ -48,6 +50,11 @@ struct cpio_header {
 /** CPIO magic */
 #define CPIO_MAGIC "070701"
 
+/** CPIO header length alignment */
+#define CPIO_ALIGN 4
+
 extern void cpio_set_field ( char *field, unsigned long value );
+extern size_t cpio_name_len ( struct image *image );
+extern size_t cpio_header ( struct image *image, struct cpio_header *cpio );
 
 #endif /* _IPXE_CPIO_H */
