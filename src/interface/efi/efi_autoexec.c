@@ -24,11 +24,16 @@
 FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 
 #include <string.h>
+#include <stdlib.h>
 #include <errno.h>
 #include <ipxe/image.h>
 #include <ipxe/init.h>
+#include <ipxe/in.h>
+#include <ipxe/settings.h>
+#include <ipxe/cachedhcp.h>
 #include <ipxe/efi/efi.h>
 #include <ipxe/efi/efi_autoexec.h>
+#include <ipxe/efi/Protocol/PxeBaseCode.h>
 #include <ipxe/efi/Protocol/SimpleFileSystem.h>
 #include <ipxe/efi/Guid/FileInfo.h>
 
@@ -170,6 +175,146 @@ static int efi_autoexec_filesystem ( EFI_HANDLE device ) {
 }
 
 /**
+ * Load autoexec script from TFTP server
+ *
+ * @v device		Device handle
+ * @ret rc		Return status code
+ */
+static int efi_autoexec_tftp ( EFI_HANDLE device ) {
+	EFI_BOOT_SERVICES *bs = efi_systab->BootServices;
+	union {
+		void *interface;
+		EFI_PXE_BASE_CODE_PROTOCOL *pxe;
+	} u;
+	union {
+		struct in_addr in;
+		EFI_IP_ADDRESS ip;
+	} server;
+	struct settings *settings;
+	size_t filename_len;
+	char *filename;
+	char *sep;
+	int len;
+	UINT64 size;
+	VOID *data;
+	EFI_STATUS efirc;
+	int rc;
+
+	/* Open PXE base code protocol */
+	if ( ( efirc = bs->OpenProtocol ( device,
+					  &efi_pxe_base_code_protocol_guid,
+					  &u.interface, efi_image_handle,
+					  device,
+					  EFI_OPEN_PROTOCOL_GET_PROTOCOL ))!=0){
+		rc = -EEFI ( efirc );
+		DBGC ( device, "EFI %s has no PXE base code instance: %s\n",
+		       efi_handle_name ( device ), strerror ( rc ) );
+		goto err_pxe;
+	}
+
+	/* Identify settings block containing cached filename, if any */
+	len = fetch_setting ( &cachedhcp_settings, &filename_setting,
+			      &settings, NULL, NULL, 0 );
+	if ( len < 0 ) {
+		rc = len;
+		DBGC ( device, "EFI %s has no PXE boot filename: %s\n",
+		       efi_handle_name ( device ), strerror ( rc ) );
+		goto err_settings;
+	}
+
+	/* Allocate filename */
+	filename_len = ( len + ( sizeof ( efi_autoexec_name ) - 1 /* NUL */ )
+			 + 1 /* NUL */ );
+	filename = malloc ( filename_len );
+	if ( ! filename ) {
+		rc = -ENOMEM;
+		goto err_filename;
+	}
+
+	/* Fetch filename and TFTP server address */
+	fetch_string_setting ( settings, &filename_setting, filename,
+			       filename_len );
+	memset ( &server, 0, sizeof ( server ) );
+	fetch_ipv4_setting ( settings, &next_server_setting, &server.in );
+
+	/* Update filename to autoexec script name */
+	sep = strrchr ( filename, '/' );
+	if ( ! sep )
+		sep = strrchr ( filename, '\\' );
+	if ( ! sep )
+		sep = ( filename - 1 );
+	strcpy ( ( sep + 1 ), efi_autoexec_name );
+
+	/* Get file size */
+	if ( ( efirc = u.pxe->Mtftp ( u.pxe,
+				      EFI_PXE_BASE_CODE_TFTP_GET_FILE_SIZE,
+				      NULL, FALSE, &size, NULL, &server.ip,
+				      ( ( UINT8 * ) filename ), NULL,
+				      FALSE ) ) != 0 ) {
+		rc = -EEFI ( efirc );
+		DBGC ( device, "EFI %s could not get size of %s:%s: %s\n",
+		       efi_handle_name ( device ), inet_ntoa ( server.in ),
+		       filename, strerror ( rc ) );
+		goto err_size;
+	}
+
+	/* Ignore zero-length files */
+	if ( ! size ) {
+		rc = -EINVAL;
+		DBGC ( device, "EFI %s has zero-length %s:%s\n",
+		       efi_handle_name ( device ), inet_ntoa ( server.in ),
+		       filename );
+		goto err_empty;
+	}
+
+	/* Allocate temporary copy */
+	if ( ( efirc = bs->AllocatePool ( EfiBootServicesData, size,
+					  &data ) ) != 0 ) {
+		rc = -EEFI ( efirc );
+		DBGC ( device, "EFI %s could not allocate %s:%s: %s\n",
+		       efi_handle_name ( device ), inet_ntoa ( server.in ),
+		       filename, strerror ( rc ) );
+		goto err_alloc;
+	}
+
+	/* Download file */
+	if ( ( efirc = u.pxe->Mtftp ( u.pxe, EFI_PXE_BASE_CODE_TFTP_READ_FILE,
+				      data, FALSE, &size, NULL, &server.ip,
+				      ( ( UINT8 * ) filename ), NULL,
+				      FALSE ) ) != 0 ) {
+		rc = -EEFI ( efirc );
+		DBGC ( device, "EFI %s could not download %s:%s: %s\n",
+		       efi_handle_name ( device ), inet_ntoa ( server.in ),
+		       filename, strerror ( rc ) );
+		goto err_download;
+	}
+
+	/* Record autoexec script */
+	efi_autoexec = data;
+	efi_autoexec_len = size;
+	data = NULL;
+	DBGC ( device, "EFI %s found %s:%s\n", efi_handle_name ( device ),
+	       inet_ntoa ( server.in ), filename );
+
+	/* Success */
+	rc = 0;
+
+ err_download:
+	if ( data )
+		bs->FreePool ( data );
+ err_alloc:
+ err_empty:
+ err_size:
+	free ( filename );
+ err_filename:
+ err_settings:
+	bs->CloseProtocol ( device, &efi_pxe_base_code_protocol_guid,
+			    efi_image_handle, device );
+ err_pxe:
+	return rc;
+}
+
+/**
  * Load autoexec script
  *
  * @v device		Device handle
@@ -184,6 +329,10 @@ int efi_autoexec_load ( EFI_HANDLE device ) {
 
 	/* Try loading from file system, if supported */
 	if ( ( rc = efi_autoexec_filesystem ( device ) ) == 0 )
+		return 0;
+
+	/* Try loading via TFTP, if supported */
+	if ( ( rc = efi_autoexec_tftp ( device ) ) == 0 )
 		return 0;
 
 	return -ENOENT;
