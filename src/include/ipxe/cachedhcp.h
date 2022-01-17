@@ -17,6 +17,9 @@ struct cached_dhcp_packet;
 extern struct cached_dhcp_packet cached_dhcpack;
 extern struct cached_dhcp_packet cached_proxydhcp;
 extern struct cached_dhcp_packet cached_pxebs;
+extern struct generic_settings cachedhcp_generic;
+
+#define cachedhcp_settings cachedhcp_generic.settings
 
 extern int cachedhcp_record ( struct cached_dhcp_packet *cache, userptr_t data,
 			      size_t max_len );

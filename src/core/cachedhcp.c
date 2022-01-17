@@ -67,8 +67,22 @@ static struct cached_dhcp_packet *cached_packets[] = {
 	&cached_pxebs,
 };
 
+/** Cached DHCP settings placeholder block */
+struct generic_settings cachedhcp_generic = {
+	.settings = {
+		.refcnt = NULL,
+		.name = "cachedhcp",
+		.siblings =
+		    LIST_HEAD_INIT ( cachedhcp_generic.settings.siblings ),
+		.children =
+		    LIST_HEAD_INIT ( cachedhcp_generic.settings.children ),
+		.op = &generic_settings_operations,
+	},
+	.list = LIST_HEAD_INIT ( cachedhcp_generic.list ),
+};
+
 /** Colour for debug messages */
-#define colour &cached_dhcpack
+#define colour &cachedhcp_settings
 
 /**
  * Free cached DHCP packet
@@ -114,6 +128,9 @@ static int cachedhcp_apply ( struct cached_dhcp_packet *cache,
 	/* Select appropriate parent settings block */
 	settings = ( netdev ? netdev_settings ( netdev ) : NULL );
 
+	/* Unregister from placeholder settings block */
+	unregister_settings ( &cache->dhcppkt->settings );
+
 	/* Register settings */
 	if ( ( rc = register_settings ( &cache->dhcppkt->settings, settings,
 					cache->name ) ) != 0 ) {
@@ -143,6 +160,7 @@ int cachedhcp_record ( struct cached_dhcp_packet *cache, userptr_t data,
 	struct dhcphdr *dhcphdr;
 	unsigned int i;
 	size_t len;
+	int rc;
 
 	/* Free any existing cached packet */
 	cachedhcp_free ( cache );
@@ -186,6 +204,14 @@ int cachedhcp_record ( struct cached_dhcp_packet *cache, userptr_t data,
 			dhcppkt_put ( dhcppkt );
 			return -EEXIST;
 		}
+	}
+
+	/* Register in placeholder settings block */
+	if ( ( rc = register_settings ( &dhcppkt->settings, &cachedhcp_settings,
+					cache->name ) ) != 0 ) {
+		DBGC ( colour, "CACHEDHCP %s could not register placeholder "
+		       "settings: %s\n", cache->name, strerror ( rc ) );
+		return rc;
 	}
 
 	/* Store as cached packet */

@@ -526,6 +526,10 @@ void unregister_settings ( struct settings *settings ) {
 	DBGC ( settings, "Settings %p (\"%s\") unregistered\n",
 	       settings, settings_name ( settings ) );
 
+	/* Do nothing more if settings are already unregistered */
+	if ( ! settings->parent )
+		return;
+
 	/* Remove from list of settings */
 	ref_put ( settings->parent->refcnt );
 	settings->parent = NULL;
