@@ -1490,6 +1490,135 @@ static EFI_NETWORK_INTERFACE_IDENTIFIER_PROTOCOL efi_snp_device_nii = {
 
 /******************************************************************************
  *
+ * VLAN configuration protocol
+ *
+ ******************************************************************************
+ */
+
+/**
+ * Create or modify VLAN device
+ *
+ * @v vcfg		VLAN configuration protocol
+ * @v tag		VLAN tag
+ * @v priority		Default VLAN priority
+ * @ret efirc		EFI status code
+ */
+static EFI_STATUS EFIAPI efi_vlan_set ( EFI_VLAN_CONFIG_PROTOCOL *vcfg,
+					UINT16 tag, UINT8 priority ) {
+	struct efi_snp_device *snpdev =
+		container_of ( vcfg, struct efi_snp_device, vcfg );
+	struct net_device *trunk = snpdev->netdev;
+	int rc;
+
+	/* Create or modify VLAN device */
+	if ( ( rc = vlan_create ( trunk, tag, priority ) ) != 0 ) {
+		DBGC ( snpdev, "SNPDEV %p could not create VLAN tag %d: %s\n",
+		       snpdev, tag, strerror ( rc ) );
+		return EFIRC ( rc );
+	}
+
+	DBGC ( snpdev, "SNPDEV %p created VLAN tag %d priority %d\n",
+	       snpdev, tag, priority );
+	return 0;
+}
+
+/**
+ * Find VLAN device(s)
+ *
+ * @v vcfg		VLAN configuration protocol
+ * @v filter		VLAN tag, or NULL to find all VLANs
+ * @v count		Number of VLANs
+ * @v entries		List of VLANs
+ * @ret efirc		EFI status code
+ */
+static EFI_STATUS EFIAPI efi_vlan_find ( EFI_VLAN_CONFIG_PROTOCOL *vcfg,
+					 UINT16 *filter, UINT16 *count,
+					 EFI_VLAN_FIND_DATA **entries ) {
+	EFI_BOOT_SERVICES *bs = efi_systab->BootServices;
+	struct efi_snp_device *snpdev =
+		container_of ( vcfg, struct efi_snp_device, vcfg );
+	struct net_device *trunk = snpdev->netdev;
+	struct net_device *vlan;
+	EFI_VLAN_FIND_DATA *entry;
+	VOID *buffer;
+	unsigned int tag;
+	unsigned int tci;
+	size_t len;
+	EFI_STATUS efirc;
+
+	/* Count number of matching VLANs */
+	*count = 0;
+	for ( tag = 1 ; VLAN_TAG_IS_VALID ( tag ) ; tag++ ) {
+		if ( filter && ( tag != *filter ) )
+			continue;
+		if ( ! ( vlan = vlan_find ( trunk, tag ) ) )
+			continue;
+		(*count)++;
+	}
+
+	/* Allocate buffer to hold results */
+	len = ( (*count) * sizeof ( *entry ) );
+	if ( ( efirc = bs->AllocatePool ( EfiBootServicesData, len,
+					  &buffer ) ) != 0 )
+		return efirc;
+
+	/* Fill in buffer */
+	*entries = buffer;
+	entry = *entries;
+	for ( tag = 1 ; VLAN_TAG_IS_VALID ( tag ) ; tag++ ) {
+		if ( filter && ( tag != *filter ) )
+			continue;
+		if ( ! ( vlan = vlan_find ( trunk, tag ) ) )
+			continue;
+		tci = vlan_tci ( vlan );
+		entry->VlanId = VLAN_TAG ( tci );
+		entry->Priority = VLAN_PRIORITY ( tci );
+		assert ( entry->VlanId == tag );
+		entry++;
+	}
+	assert ( entry == &(*entries)[*count] );
+
+	return 0;
+}
+
+/**
+ * Remove VLAN device
+ *
+ * @v vcfg		VLAN configuration protocol
+ * @v tag		VLAN tag
+ * @ret efirc		EFI status code
+ */
+static EFI_STATUS EFIAPI efi_vlan_remove ( EFI_VLAN_CONFIG_PROTOCOL *vcfg,
+					   UINT16 tag ) {
+	struct efi_snp_device *snpdev =
+		container_of ( vcfg, struct efi_snp_device, vcfg );
+	struct net_device *trunk = snpdev->netdev;
+	struct net_device *vlan;
+
+	/* Identify VLAN device */
+	vlan = vlan_find ( trunk, tag );
+	if ( ! vlan ) {
+		DBGC ( snpdev, "SNPDEV %p could not find VLAN tag %d\n",
+		       snpdev, tag );
+		return EFI_NOT_FOUND;
+	}
+
+	/* Remove VLAN device */
+	vlan_destroy ( vlan );
+
+	DBGC ( snpdev, "SNPDEV %p removed VLAN tag %d\n", snpdev, tag );
+	return 0;
+}
+
+/** VLAN configuration protocol */
+static EFI_VLAN_CONFIG_PROTOCOL efi_vlan = {
+	.Set		= efi_vlan_set,
+	.Find		= efi_vlan_find,
+	.Remove		= efi_vlan_remove,
+};
+
+/******************************************************************************
+ *
  * Component name protocol
  *
  ******************************************************************************
@@ -1687,6 +1816,9 @@ static int efi_snp_probe ( struct net_device *netdev ) {
 	efi_snp_undi.Fudge -= efi_undi_checksum ( &efi_snp_undi,
 						  sizeof ( efi_snp_undi ) );
 
+	/* Populate the VLAN configuration protocol */
+	memcpy ( &snpdev->vcfg, &efi_vlan, sizeof ( snpdev->vcfg ) );
+
 	/* Populate the component name structure */
 	efi_snprintf ( snpdev->driver_name,
 		       ( sizeof ( snpdev->driver_name ) /
@@ -1725,6 +1857,7 @@ static int efi_snp_probe ( struct net_device *netdev ) {
 			&efi_device_path_protocol_guid, snpdev->path,
 			&efi_nii_protocol_guid, &snpdev->nii,
 			&efi_nii31_protocol_guid, &snpdev->nii,
+			&efi_vlan_config_protocol_guid, &snpdev->vcfg,
 			&efi_component_name2_protocol_guid, &snpdev->name2,
 			&efi_load_file_protocol_guid, &snpdev->load_file,
 			NULL ) ) != 0 ) {
@@ -1811,6 +1944,7 @@ static int efi_snp_probe ( struct net_device *netdev ) {
 			&efi_device_path_protocol_guid, snpdev->path,
 			&efi_nii_protocol_guid, &snpdev->nii,
 			&efi_nii31_protocol_guid, &snpdev->nii,
+			&efi_vlan_config_protocol_guid, &snpdev->vcfg,
 			&efi_component_name2_protocol_guid, &snpdev->name2,
 			&efi_load_file_protocol_guid, &snpdev->load_file,
 			NULL ) ) != 0 ) {
@@ -1820,6 +1954,7 @@ static int efi_snp_probe ( struct net_device *netdev ) {
 	}
 	efi_nullify_snp ( &snpdev->snp );
 	efi_nullify_nii ( &snpdev->nii );
+	efi_nullify_vlan ( &snpdev->vcfg );
 	efi_nullify_name2 ( &snpdev->name2 );
 	efi_nullify_load_file ( &snpdev->load_file );
  err_install_protocol_interface:
