@@ -4,6 +4,10 @@
 #
 LDSCRIPT = arch/x86_64/scripts/linux.lds
 
+# Starting virtual address
+#
+LDFLAGS += -Ttext=0x400000
+
 # Include generic Linux Makefile
 #
 MAKEDEPS += arch/x86/Makefile.linux

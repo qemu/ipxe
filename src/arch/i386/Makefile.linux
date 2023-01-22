@@ -4,6 +4,10 @@
 #
 LDSCRIPT = arch/i386/scripts/linux.lds
 
+# Starting virtual address
+#
+LDFLAGS += -Ttext=0x08048000
+
 # Compiler flags for building host API wrapper
 #
 LINUX_CFLAGS	+= -m32
