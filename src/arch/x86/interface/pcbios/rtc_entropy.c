@@ -55,6 +55,10 @@ static struct segoff rtc_old_handler;
 extern volatile uint8_t __text16 ( rtc_flag );
 #define rtc_flag __use_text16 ( rtc_flag )
 
+/** RTC interrupt requires rearming each time */
+extern volatile uint8_t __text16 ( rtc_rearm );
+#define rtc_rearm __use_text16 ( rtc_rearm )
+
 /**
  * Hook RTC interrupt handler
  *
@@ -73,19 +77,49 @@ static void rtc_hook_isr ( void ) {
 			       */
 			      "movb %2, %%al\n\t"
 			      "outb %%al, %0\n\t"
-			      "inb %1\n\t"
+			      "inb %1, %%al\n\t"
+
+			      /* Rearm RTC interrupt, if required */
+			      "testb $0xff, %%cs:rtc_rearm\n\t"
+			      "jz rtc_isr_done\n\t"
+			      /* Preserve registers */
+			      "pushw %%bx\n\t"
+			      /* Read current contents of register B */
+			      "movb %3, %%al\n\t"
+			      "outb %%al, %0\n\t"
+			      "inb %1, %%al\n\t"
+			      "movb %%al, %%bl\n\t"
+			      /* Toggle periodic interrupt enable in register B */
+			      "movb %3, %%al\n\t"
+			      "outb %%al, %0\n\t"
+			      "movb %%bl, %%al\n\t"
+			      "xorb %4, %%al\n\t"
+			      "outb %%al, %1\n\t"
+			      /* Restore periodic interrupt enable in register B */
+			      "movb %3, %%al\n\t"
+			      "outb %%al, %0\n\t"
+			      "movb %%bl, %%al\n\t"
+			      "outb %%al, %1\n\t"
+			      /* Restore registers */
+			      "popw %%bx\n\t"
+
 			      /* Send EOI */
+			      "\nrtc_isr_done:\n\t"
 			      "movb $0x20, %%al\n\t"
 			      "outb %%al, $0xa0\n\t"
 			      "outb %%al, $0x20\n\t"
 			      /* Restore registers and return */
 			      "popw %%ax\n\t"
 			      "iret\n\t"
+
 			      "\nrtc_flag:\n\t"
+			      ".byte 0\n\t"
+
+			      "\nrtc_rearm:\n\t"
 			      ".byte 0\n\t" )
 		:
-		: "i" ( CMOS_ADDRESS ), "i" ( CMOS_DATA ),
-		  "i" ( RTC_STATUS_C ) );
+		: "i" ( CMOS_ADDRESS ), "i" ( CMOS_DATA ), "i" ( RTC_STATUS_C ),
+		  "i" ( RTC_STATUS_B ), "i" ( RTC_STATUS_B_PIE ) );
 
 	hook_bios_interrupt ( RTC_INT, ( intptr_t ) rtc_isr, &rtc_old_handler );
 }
@@ -178,6 +212,38 @@ static int rtc_entropy_check ( void ) {
 }
 
 /**
+ * Apply workaround for broken RTC interrupts
+ *
+ * @ret rc		Return status code
+ *
+ * Some versions of Hyper-V (observed with Windows Server 2022) fail
+ * to properly emulate the RTC periodic interrupt.  The typical
+ * symptom is that only a single interrupt will be generated:
+ * subsequent interrupts will appear to be asserted by the virtual RTC
+ * but will be ignored by the virtual PIC.
+ *
+ * Experiments show that this apparent hypervisor bug can be worked
+ * around by disabling and re-enabling the periodic interrupt within
+ * the interrupt handler.
+ */
+static int rtc_entropy_workaround ( void ) {
+	int rc;
+
+	/* Apply workaround */
+	DBGC ( &rtc_flag, "RTC applying workaround for broken interrupts\n" );
+	rtc_rearm = 1;
+
+	/* Force one interrupt, to trigger the rearming code path */
+	__asm__ __volatile__ ( "int %0" : : "i" ( RTC_INT ) );
+
+	/* Check that RTC interrupts are now working */
+	if ( ( rc = rtc_entropy_check() ) != 0 )
+		return rc;
+
+	return 0;
+}
+
+/**
  * Enable entropy gathering
  *
  * @ret rc		Return status code
@@ -200,8 +266,10 @@ static int rtc_entropy_enable ( void ) {
 	rtc_enable_int();
 
 	/* Check that RTC interrupts are working */
-	if ( ( rc = rtc_entropy_check() ) != 0 )
+	if ( ( ( rc = rtc_entropy_check() ) != 0 ) &&
+	     ( ( rc = rtc_entropy_workaround() ) != 0 ) ) {
 		goto err_check;
+	}
 
 	return 0;
 
