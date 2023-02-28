@@ -1851,14 +1851,15 @@ static struct http_state http_trailers = {
  */
 
 /**
- * Construct HTTP parameter list
+ * Construct HTTP form parameter list
  *
  * @v params		Parameter list
  * @v buf		Buffer to contain HTTP POST parameters
  * @v len		Length of buffer
  * @ret len		Length of parameter list (excluding terminating NUL)
  */
-static size_t http_params ( struct parameters *params, char *buf, size_t len ) {
+static size_t http_form_params ( struct parameters *params, char *buf,
+				 size_t len ) {
 	struct parameter *param;
 	ssize_t remaining = len;
 	size_t frag_len;
@@ -1930,8 +1931,8 @@ static int http_open_post_uri ( struct interface *xfer, struct uri *uri ) {
 	size_t check_len;
 	int rc;
 
-	/* Calculate length of parameter list */
-	len = http_params ( params, NULL, 0 );
+	/* Calculate length of form parameter list */
+	len = http_form_params ( params, NULL, 0 );
 
 	/* Allocate temporary parameter list */
 	data = zalloc ( len + 1 /* NUL */ );
@@ -1940,8 +1941,8 @@ static int http_open_post_uri ( struct interface *xfer, struct uri *uri ) {
 		goto err_alloc;
 	}
 
-	/* Construct temporary parameter list */
-	check_len = http_params ( params, data, ( len + 1 /* NUL */ ) );
+	/* Construct temporary form parameter list */
+	check_len = http_form_params ( params, data, ( len + 1 /* NUL */ ) );
 	assert ( check_len == len );
 
 	/* Construct request content */
