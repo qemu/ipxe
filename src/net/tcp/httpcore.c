@@ -831,6 +831,7 @@ static int http_transfer_complete ( struct http_transaction *http ) {
 static int http_format_headers ( struct http_transaction *http, char *buf,
 				 size_t len ) {
 	struct http_request_header *header;
+	struct parameter *param;
 	size_t used;
 	size_t remaining;
 	char *line;
@@ -844,7 +845,7 @@ static int http_format_headers ( struct http_transaction *http, char *buf,
 		DBGC2 ( http, "HTTP %p TX %s\n", http, buf );
 	used += ssnprintf ( ( buf + used ), ( len - used ), "\r\n" );
 
-	/* Construct all headers */
+	/* Construct all fixed headers */
 	for_each_table_entry ( header, HTTP_REQUEST_HEADERS ) {
 
 		/* Determine header value length */
@@ -867,6 +868,18 @@ static int http_format_headers ( struct http_transaction *http, char *buf,
 		if ( used < len )
 			DBGC2 ( http, "HTTP %p TX %s\n", http, line );
 		used += ssnprintf ( ( buf + used ), ( len - used ), "\r\n" );
+	}
+
+	/* Construct all parameter headers */
+	for_each_param ( param, http->uri->params ) {
+
+		/* Skip non-header parameters */
+		if ( ! ( param->flags & PARAMETER_HEADER ) )
+			continue;
+
+		/* Add parameter */
+		used += ssnprintf ( ( buf + used ), ( len - used ),
+				    "%s: %s\r\n", param->key, param->value );
 	}
 
 	/* Construct terminating newline */
@@ -1867,6 +1880,10 @@ static size_t http_form_params ( struct parameters *params, char *buf,
 	/* Add each parameter in the form "key=value", joined with "&" */
 	len = 0;
 	for_each_param ( param, params ) {
+
+		/* Skip non-form parameters */
+		if ( ! ( param->flags & PARAMETER_FORM ) )
+			continue;
 
 		/* Add the "&", if applicable */
 		if ( len ) {
