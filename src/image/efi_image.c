@@ -31,6 +31,7 @@ FILE_LICENCE ( GPL2_OR_LATER );
 #include <ipxe/efi/efi_wrap.h>
 #include <ipxe/efi/efi_pxe.h>
 #include <ipxe/efi/efi_driver.h>
+#include <ipxe/efi/efi_shim.h>
 #include <ipxe/image.h>
 #include <ipxe/init.h>
 #include <ipxe/features.h>
@@ -54,6 +55,9 @@ FEATURE ( FEATURE_IMAGE, "EFI", DHCP_EB_FEATURE_EFI, 1 );
 	__einfo_uniqify ( EINFO_EPLATFORM, 0x02,			\
 			  "Could not start image" )
 #define EEFI_START( efirc ) EPLATFORM ( EINFO_EEFI_START, efirc )
+
+/** Registered shim, if any */
+struct image *efi_shim;
 
 /**
  * Create device path for image
@@ -132,12 +136,14 @@ static wchar_t * efi_image_cmdline ( struct image *image ) {
  */
 static int efi_image_exec ( struct image *image ) {
 	EFI_BOOT_SERVICES *bs = efi_systab->BootServices;
+	struct image *shim = efi_shim;
 	struct efi_snp_device *snpdev;
 	EFI_DEVICE_PATH_PROTOCOL *path;
 	union {
 		EFI_LOADED_IMAGE_PROTOCOL *image;
 		void *interface;
 	} loaded;
+	struct image *exec;
 	EFI_HANDLE handle;
 	EFI_MEMORY_TYPE type;
 	wchar_t *cmdline;
@@ -160,8 +166,9 @@ static int efi_image_exec ( struct image *image ) {
 		goto err_file_install;
 	}
 
-	/* Install PXE base code protocol */
-	if ( ( rc = efi_pxe_install ( snpdev->handle, snpdev->netdev ) ) != 0 ){
+	/* Install PXE base code protocol (unless using a shim) */
+	if ( ( ! shim ) &&
+	     ( rc = efi_pxe_install ( snpdev->handle, snpdev->netdev ) ) != 0 ){
 		DBGC ( image, "EFIIMAGE %s could not install PXE protocol: "
 		       "%s\n", image->name, strerror ( rc ) );
 		goto err_pxe_install;
@@ -192,11 +199,18 @@ static int efi_image_exec ( struct image *image ) {
 		goto err_cmdline;
 	}
 
+	/* Execute image or shim as applicable */
+	exec = ( shim ? shim : image );
+	if ( shim ) {
+		DBGC ( image, "EFIIMAGE %s executing via %s\n",
+		       image->name, shim->name );
+	}
+
 	/* Attempt loading image */
 	handle = NULL;
 	if ( ( efirc = bs->LoadImage ( FALSE, efi_image_handle, path,
-				       user_to_virt ( image->data, 0 ),
-				       image->len, &handle ) ) != 0 ) {
+				       user_to_virt ( exec->data, 0 ),
+				       exec->len, &handle ) ) != 0 ) {
 		/* Not an EFI image */
 		rc = -EEFI_LOAD ( efirc );
 		DBGC ( image, "EFIIMAGE %s could not load: %s\n",
@@ -292,7 +306,8 @@ static int efi_image_exec ( struct image *image ) {
  err_image_path:
 	efi_download_uninstall ( snpdev->handle );
  err_download_install:
-	efi_pxe_uninstall ( snpdev->handle );
+	if ( ! shim )
+		efi_pxe_uninstall ( snpdev->handle );
  err_pxe_install:
 	efi_file_uninstall ( snpdev->handle );
  err_file_install:
