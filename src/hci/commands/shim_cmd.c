@@ -51,13 +51,13 @@ static struct option_descriptor shim_opts[] = {
 		      struct shim_options, keep, parse_flag ),
 	OPTION_DESC ( "timeout", 't', required_argument,
 		      struct shim_options, timeout, parse_timeout ),
-	OPTION_DESC ( "second", 's', required_argument,
+	OPTION_DESC ( "altname", 'a', required_argument,
 		      struct shim_options, altname, parse_string ),
 };
 
 /** "shim" command descriptor */
 static struct command_descriptor shim_cmd =
-	COMMAND_DESC ( struct shim_options, shim_opts, 1, 1, NULL );
+	COMMAND_DESC ( struct shim_options, shim_opts, 0, 1, NULL );
 
 /**
  * The "shim" command
@@ -68,29 +68,35 @@ static struct command_descriptor shim_cmd =
  */
 static int shim_exec ( int argc, char **argv ) {
 	struct shim_options opts;
-	struct image *image;
+	struct image *image = NULL;
+	char *name_uri = NULL;
 	int rc;
 
 	/* Parse options */
 	if ( ( rc = parse_options ( argc, argv, &shim_cmd, &opts ) ) != 0 )
 		goto err_parse;
 
-	/* Acquire image */
-	if ( ( rc = imgacquire ( argv[optind], opts.timeout, &image ) ) != 0 )
-		goto err_acquire;
+	/* Parse name/URI string */
+	name_uri = argv[optind];
 
-	/* Record second stage, if any */
-	if ( ( rc = image_set_cmdline ( image, opts.altname ) ) != 0 )
+	/* Acquire image, if applicable */
+	if ( name_uri &&
+	     ( rc = imgacquire ( name_uri, opts.timeout, &image ) ) != 0 ) {
+		goto err_acquire;
+	}
+
+	/* Record second stage alternative name, if any */
+	if ( image && ( rc = image_set_cmdline ( image, opts.altname ) ) != 0 )
 		goto err_cmdline;
 
-	/* Register as shim */
+	/* (Un)register as shim */
 	efi_set_shim ( image );
 
 	/* Success */
 	rc = 0;
 
-	/* Discard original image unless --keep was specified */
-	if ( ! opts.keep )
+	/* Unregister original image unless --keep was specified */
+	if ( image && ( ! opts.keep ) )
 		unregister_image ( image );
  err_cmdline:
  err_acquire:

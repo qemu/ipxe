@@ -120,10 +120,10 @@ static const char * efi_file_name ( struct efi_file *file ) {
 
 	if ( file == &efi_file_root ) {
 		return "<root>";
-	} else if ( file->name != NULL ) {
-		return file->name;
 	} else if ( file->image != NULL ) {
 		return file->image->name;
+	} else if ( file->name != NULL ) {
+		return file->name;
 	} else {
 		return "<UNKNOWN>";
 	}
@@ -290,10 +290,11 @@ static size_t efi_file_read_initrd ( struct efi_file_reader *reader ) {
  * Open fixed file
  *
  * @v file		EFI file
+ * @v wname		Filename
  * @v new		New EFI file
  * @ret efirc		EFI status code
  */
-static EFI_STATUS efi_file_open_fixed ( struct efi_file *file,
+static EFI_STATUS efi_file_open_fixed ( struct efi_file *file, const char *name,
 					EFI_FILE_PROTOCOL **new ) {
 
 	/* Increment reference count */
@@ -302,7 +303,8 @@ static EFI_STATUS efi_file_open_fixed ( struct efi_file *file,
 	/* Return opened file */
 	*new = &file->file;
 
-	DBGC ( file, "EFIFILE %s opened\n", efi_file_name ( file ) );
+	DBGC ( file, "EFIFILE %s opened via %s\n",
+	       efi_file_name ( file ), name );
 	return 0;
 }
 
@@ -350,7 +352,7 @@ efi_file_open ( EFI_FILE_PROTOCOL *this, EFI_FILE_PROTOCOL **new,
 
 	/* Allow root directory itself to be opened */
 	if ( ( name[0] == '\0' ) || ( name[0] == '.' ) )
-		return efi_file_open_fixed ( &efi_file_root, new );
+		return efi_file_open_fixed ( &efi_file_root, name, new );
 
 	/* Fail unless opening from the root */
 	if ( file != &efi_file_root ) {
@@ -371,12 +373,12 @@ efi_file_open ( EFI_FILE_PROTOCOL *this, EFI_FILE_PROTOCOL **new,
 	     ( ( strcasecmp ( name, efi_file_second.image->name ) == 0 ) ||
 	       ( ( efi_file_second.name != NULL ) &&
 		 ( strcasecmp ( name, efi_file_second.name ) == 0 ) ) ) ) {
-		return efi_file_open_fixed ( &efi_file_second, new );
+		return efi_file_open_fixed ( &efi_file_second, name, new );
 	}
 
 	/* Allow magic initrd to be opened */
 	if ( strcasecmp ( name, efi_file_initrd.name ) == 0 )
-		return efi_file_open_fixed ( &efi_file_initrd, new );
+		return efi_file_open_fixed ( &efi_file_initrd, name, new );
 
 	/* Identify image */
 	image = efi_file_find ( name );
@@ -849,7 +851,7 @@ efi_file_open_volume ( EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *filesystem __unused,
 		       EFI_FILE_PROTOCOL **file ) {
 
 	DBGC ( &efi_file_root, "EFIFILE open volume\n" );
-	return efi_file_open_fixed ( &efi_file_root, file );
+	return efi_file_open_fixed ( &efi_file_root, "volume", file );
 }
 
 /** EFI simple file system protocol */
