@@ -41,6 +41,8 @@ struct shim_options {
 	int keep;
 	/** Download timeout */
 	unsigned long timeout;
+	/** Second stage alternative name */
+	char *altname;
 };
 
 /** "shim" option list */
@@ -49,6 +51,8 @@ static struct option_descriptor shim_opts[] = {
 		      struct shim_options, keep, parse_flag ),
 	OPTION_DESC ( "timeout", 't', required_argument,
 		      struct shim_options, timeout, parse_timeout ),
+	OPTION_DESC ( "second", 's', required_argument,
+		      struct shim_options, altname, parse_string ),
 };
 
 /** "shim" command descriptor */
@@ -75,6 +79,10 @@ static int shim_exec ( int argc, char **argv ) {
 	if ( ( rc = imgacquire ( argv[optind], opts.timeout, &image ) ) != 0 )
 		goto err_acquire;
 
+	/* Record second stage, if any */
+	if ( ( rc = image_set_cmdline ( image, opts.altname ) ) != 0 )
+		goto err_cmdline;
+
 	/* Register as shim */
 	efi_set_shim ( image );
 
@@ -84,6 +92,7 @@ static int shim_exec ( int argc, char **argv ) {
 	/* Discard original image unless --keep was specified */
 	if ( ! opts.keep )
 		unregister_image ( image );
+ err_cmdline:
  err_acquire:
  err_parse:
 	return rc;

@@ -94,6 +94,7 @@ struct efi_file {
 };
 
 static struct efi_file efi_file_root;
+static struct efi_file efi_file_second;
 static struct efi_file efi_file_initrd;
 
 /**
@@ -117,7 +118,15 @@ static void efi_file_free ( struct refcnt *refcnt ) {
  */
 static const char * efi_file_name ( struct efi_file *file ) {
 
-	return ( file == &efi_file_root ? "<root>" : file->name );
+	if ( file == &efi_file_root ) {
+		return "<root>";
+	} else if ( file->name != NULL ) {
+		return file->name;
+	} else if ( file->image != NULL ) {
+		return file->image->name;
+	} else {
+		return "<UNKNOWN>";
+	}
 }
 
 /**
@@ -355,6 +364,14 @@ efi_file_open ( EFI_FILE_PROTOCOL *this, EFI_FILE_PROTOCOL **new,
 		DBGC ( file, "EFIFILE %s cannot be opened in mode %#08llx\n",
 		       name, mode );
 		return EFI_WRITE_PROTECTED;
+	}
+
+	/* Allow magic second stage to be opened */
+	if ( ( efi_file_second.image != NULL ) &&
+	     ( ( strcasecmp ( name, efi_file_second.image->name ) == 0 ) ||
+	       ( ( efi_file_second.name != NULL ) &&
+		 ( strcasecmp ( name, efi_file_second.name ) == 0 ) ) ) ) {
+		return efi_file_open_fixed ( &efi_file_second, new );
 	}
 
 	/* Allow magic initrd to be opened */
@@ -752,6 +769,30 @@ static struct efi_file efi_file_root = {
 	.name = "",
 };
 
+/** Magic second stage file */
+static struct efi_file efi_file_second = {
+	.refcnt = REF_INIT ( ref_no_free ),
+	.file = {
+		.Revision = EFI_FILE_PROTOCOL_REVISION,
+		.Open = efi_file_open,
+		.Close = efi_file_close,
+		.Delete = efi_file_delete,
+		.Read = efi_file_read,
+		.Write = efi_file_write,
+		.GetPosition = efi_file_get_position,
+		.SetPosition = efi_file_set_position,
+		.GetInfo = efi_file_get_info,
+		.SetInfo = efi_file_set_info,
+		.Flush = efi_file_flush,
+	},
+	.load = {
+		.LoadFile = efi_file_load,
+	},
+	.image = NULL,
+	.name = NULL,
+	.read = efi_file_read_image,
+};
+
 /** Magic initrd file */
 static struct efi_file efi_file_initrd = {
 	.refcnt = REF_INIT ( ref_no_free ),
@@ -1012,9 +1053,12 @@ static int efi_file_path_install ( EFI_DEVICE_PATH_PROTOCOL *path,
  * Install EFI simple file system protocol
  *
  * @v handle		EFI handle
+ * @v second		Second stage image, or NULL
+ * @v altname		Second stage alternative filename, or NULL
  * @ret rc		Return status code
  */
-int efi_file_install ( EFI_HANDLE handle ) {
+int efi_file_install ( EFI_HANDLE handle, struct image *second,
+		       const char *altname ) {
 	EFI_BOOT_SERVICES *bs = efi_systab->BootServices;
 	EFI_LOAD_FILE2_PROTOCOL *load;
 	union {
@@ -1079,6 +1123,12 @@ int efi_file_install ( EFI_HANDLE handle ) {
 	}
 	assert ( diskio.diskio == &efi_disk_io_protocol );
 
+	/* Initialise magic second stage file, if any */
+	if ( second ) {
+		efi_file_second.image = image_get ( second );
+		efi_file_second.name = altname;
+	}
+
 	/* Install Linux initrd fixed device path file
 	 *
 	 * Install the device path handle unconditionally, since we
@@ -1097,6 +1147,9 @@ int efi_file_install ( EFI_HANDLE handle ) {
 
 	efi_file_path_install ( &efi_file_initrd_path.vendor.Header, NULL );
  err_initrd:
+	image_put ( efi_file_second.image );
+	efi_file_second.image = NULL;
+	efi_file_second.name = NULL;
 	bs->CloseProtocol ( handle, &efi_disk_io_protocol_guid,
 			    efi_image_handle, handle );
  err_open:
@@ -1124,6 +1177,11 @@ void efi_file_uninstall ( EFI_HANDLE handle ) {
 
 	/* Uninstall Linux initrd fixed device path file */
 	efi_file_path_install ( &efi_file_initrd_path.vendor.Header, NULL );
+
+	/* Clear magic second stage, if any */
+	image_put ( efi_file_second.image );
+	efi_file_second.image = NULL;
+	efi_file_second.name = NULL;
 
 	/* Close our own disk I/O protocol */
 	bs->CloseProtocol ( handle, &efi_disk_io_protocol_guid,

@@ -108,20 +108,26 @@ efi_image_path ( struct image *image, EFI_DEVICE_PATH_PROTOCOL *parent ) {
 /**
  * Create command line for image
  *
- * @v image             EFI image
+ * @v image		EFI image
+ * @v prefix		Command line prefix, or NULL
  * @ret cmdline		Command line, or NULL on failure
  */
-static wchar_t * efi_image_cmdline ( struct image *image ) {
+static wchar_t * efi_image_cmdline ( struct image *image,
+				     const char *prefix ) {
 	wchar_t *cmdline;
 	size_t len;
 
-	len = ( strlen ( image->name ) +
+	len = ( ( prefix ?
+		  ( strlen ( prefix ) + 1 /* NUL */ + 1 /* " " */ ) : 0 ) +
+		strlen ( image->name ) +
 		( image->cmdline ?
 		  ( 1 /* " " */ + strlen ( image->cmdline ) ) : 0 ) );
 	cmdline = zalloc ( ( len + 1 /* NUL */ ) * sizeof ( wchar_t ) );
 	if ( ! cmdline )
 		return NULL;
-	efi_snprintf ( cmdline, ( len + 1 /* NUL */ ), "%s%s%s",
+	efi_snprintf ( cmdline, ( len + 1 /* NUL */ ), "%s%s%s%s%s",
+		       ( prefix ? prefix : "" ),
+		       ( prefix ? " " : "" ),
 		       image->name,
 		       ( image->cmdline ? " " : "" ),
 		       ( image->cmdline ? image->cmdline : "" ) );
@@ -144,6 +150,8 @@ static int efi_image_exec ( struct image *image ) {
 		void *interface;
 	} loaded;
 	struct image *exec;
+	const char *prefix;
+	const char *altname;
 	EFI_HANDLE handle;
 	EFI_MEMORY_TYPE type;
 	wchar_t *cmdline;
@@ -159,8 +167,23 @@ static int efi_image_exec ( struct image *image ) {
 		goto err_no_snpdev;
 	}
 
+	/* Choose to execute image via shim if applicable */
+	if ( shim ) {
+		exec = shim;
+		prefix = shim->name;
+		altname = shim->cmdline;
+		DBGC ( image, "EFIIMAGE %s%s%s%s executing via %s\n",
+		       image->name, ( altname ? " (aka " : "" ),
+		       ( altname ? altname : "" ), ( altname ? ")" : "" ),
+		       shim->name );
+	} else {
+		exec = image;
+		prefix = NULL;
+		altname = NULL;
+	}
+
 	/* Install file I/O protocols */
-	if ( ( rc = efi_file_install ( snpdev->handle ) ) != 0 ) {
+	if ( ( rc = efi_file_install ( snpdev->handle, image, altname ) ) != 0){
 		DBGC ( image, "EFIIMAGE %s could not install file protocol: "
 		       "%s\n", image->name, strerror ( rc ) );
 		goto err_file_install;
@@ -182,7 +205,7 @@ static int efi_image_exec ( struct image *image ) {
 	}
 
 	/* Create device path for image */
-	path = efi_image_path ( image, snpdev->path );
+	path = efi_image_path ( exec, snpdev->path );
 	if ( ! path ) {
 		DBGC ( image, "EFIIMAGE %s could not create device path\n",
 		       image->name );
@@ -191,19 +214,12 @@ static int efi_image_exec ( struct image *image ) {
 	}
 
 	/* Create command line for image */
-	cmdline = efi_image_cmdline ( image );
+	cmdline = efi_image_cmdline ( image, prefix );
 	if ( ! cmdline ) {
 		DBGC ( image, "EFIIMAGE %s could not create command line\n",
 		       image->name );
 		rc = -ENOMEM;
 		goto err_cmdline;
-	}
-
-	/* Execute image or shim as applicable */
-	exec = ( shim ? shim : image );
-	if ( shim ) {
-		DBGC ( image, "EFIIMAGE %s executing via %s\n",
-		       image->name, shim->name );
 	}
 
 	/* Attempt loading image */
