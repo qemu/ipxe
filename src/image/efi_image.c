@@ -172,10 +172,8 @@ static int efi_image_exec ( struct image *image ) {
 		exec = shim;
 		prefix = shim->name;
 		altname = shim->cmdline;
-		DBGC ( image, "EFIIMAGE %s%s%s%s executing via %s\n",
-		       image->name, ( altname ? " (aka " : "" ),
-		       ( altname ? altname : "" ), ( altname ? ")" : "" ),
-		       shim->name );
+		DBGC ( image, "EFIIMAGE %s (aka %s) executing via %s\n",
+		       image->name, altname, shim->name );
 	} else {
 		exec = image;
 		prefix = NULL;

@@ -28,6 +28,7 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #include <ipxe/parseopt.h>
 #include <ipxe/efi/efi_shim.h>
 #include <usr/imgmgmt.h>
+#include <usr/shimmgmt.h>
 
 /** @file
  *
@@ -85,20 +86,14 @@ static int shim_exec ( int argc, char **argv ) {
 		goto err_acquire;
 	}
 
-	/* Record second stage alternative name, if any */
-	if ( image && ( rc = image_set_cmdline ( image, opts.altname ) ) != 0 )
-		goto err_cmdline;
-
 	/* (Un)register as shim */
-	efi_set_shim ( image );
-
-	/* Success */
-	rc = 0;
+	if ( ( rc = shim ( image, opts.altname ) ) != 0 )
+		goto err_shim;
 
 	/* Unregister original image unless --keep was specified */
 	if ( image && ( ! opts.keep ) )
 		unregister_image ( image );
- err_cmdline:
+ err_shim:
  err_acquire:
  err_parse:
 	return rc;
