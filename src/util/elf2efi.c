@@ -945,21 +945,6 @@ static void write_pe_file ( struct pe_header *pe_header,
 			section->fixup ( section );
 	}
 
-	/* Write file header */
-	if ( fwrite ( pe_header, sizeof ( *pe_header ), 1, pe ) != 1 ) {
-		perror ( "Could not write PE header" );
-		exit ( 1 );
-	}
-
-	/* Write section headers */
-	for ( section = pe_sections ; section ; section = section->next ) {
-		if ( fwrite ( &section->hdr, sizeof ( section->hdr ),
-			      1, pe ) != 1 ) {
-			perror ( "Could not write section header" );
-			exit ( 1 );
-		}
-	}
-
 	/* Write sections */
 	for ( section = pe_sections ; section ; section = section->next ) {
 		if ( fseek ( pe, section->hdr.PointerToRawData,
@@ -974,6 +959,25 @@ static void write_pe_file ( struct pe_header *pe_header,
 				1, pe ) != 1 ) ) {
 			eprintf ( "Could not write section %.8s: %s\n",
 				  section->hdr.Name, strerror ( errno ) );
+			exit ( 1 );
+		}
+	}
+
+	/* Write file header */
+	if ( fseek ( pe, 0, SEEK_SET ) != 0 ) {
+		eprintf ( "Could not rewind: %s\n", strerror ( errno ) );
+		exit ( 1 );
+	}
+	if ( fwrite ( pe_header, sizeof ( *pe_header ), 1, pe ) != 1 ) {
+		perror ( "Could not write PE header" );
+		exit ( 1 );
+	}
+
+	/* Write section headers */
+	for ( section = pe_sections ; section ; section = section->next ) {
+		if ( fwrite ( &section->hdr, sizeof ( section->hdr ),
+			      1, pe ) != 1 ) {
+			perror ( "Could not write section header" );
 			exit ( 1 );
 		}
 	}
