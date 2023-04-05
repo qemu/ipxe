@@ -225,7 +225,10 @@ static struct pe_header efi_pe_header = {
 
 /** Command-line options */
 struct options {
+	/** PE32+ subsystem type */
 	unsigned int subsystem;
+	/** Create hybrid BIOS/UEFI binary */
+	int hybrid;
 };
 
 /**
@@ -672,10 +675,12 @@ static struct pe_section * process_section ( struct elf_file *elf,
  * @v nsyms		Number of symbol table entries
  * @v rel		Relocation record
  * @v pe_reltab		PE relocation table to fill in
+ * @v opts		Options
  */
 static void process_reloc ( struct elf_file *elf, const Elf_Shdr *shdr,
 			    const Elf_Sym *syms, unsigned int nsyms,
-			    const Elf_Rel *rel, struct pe_relocs **pe_reltab ) {
+			    const Elf_Rel *rel, struct pe_relocs **pe_reltab,
+			    struct options *opts ) {
 	unsigned int type = ELF_R_TYPE ( rel->r_info );
 	unsigned int sym = ELF_R_SYM ( rel->r_info );
 	unsigned int mrel = ELF_MREL ( elf->ehdr->e_machine, type );
@@ -738,6 +743,15 @@ static void process_reloc ( struct elf_file *elf, const Elf_Shdr *shdr,
 			 * loaded.
 			 */
 			break;
+		case ELF_MREL ( EM_X86_64, R_X86_64_32 ) :
+			/* Ignore 32-bit relocations in a hybrid
+			 * 32-bit BIOS and 64-bit UEFI binary,
+			 * otherwise fall through to treat as an
+			 * unknown type.
+			 */
+			if ( opts->hybrid )
+				break;
+			/* fallthrough */
 		default:
 			eprintf ( "Unrecognised relocation type %d\n", type );
 			exit ( 1 );
@@ -752,9 +766,11 @@ static void process_reloc ( struct elf_file *elf, const Elf_Shdr *shdr,
  * @v shdr		ELF section header
  * @v stride		Relocation record size
  * @v pe_reltab		PE relocation table to fill in
+ * @v opts		Options
  */
 static void process_relocs ( struct elf_file *elf, const Elf_Shdr *shdr,
-			     size_t stride, struct pe_relocs **pe_reltab ) {
+			     size_t stride, struct pe_relocs **pe_reltab,
+			     struct options *opts ) {
 	const Elf_Shdr *symtab;
 	const Elf_Sym *syms;
 	const Elf_Rel *rel;
@@ -772,7 +788,7 @@ static void process_relocs ( struct elf_file *elf, const Elf_Shdr *shdr,
 	rel = ( elf->data + shdr->sh_offset );
 	nrels = ( shdr->sh_size / stride );
 	for ( i = 0 ; i < nrels ; i++ ) {
-		process_reloc ( elf, shdr, syms, nsyms, rel, pe_reltab );
+		process_reloc ( elf, shdr, syms, nsyms, rel, pe_reltab, opts );
 		rel = ( ( ( const void * ) rel ) + stride );
 	}
 }
@@ -968,6 +984,7 @@ static void write_pe_file ( struct pe_header *pe_header,
  *
  * @v elf_name		ELF file name
  * @v pe_name		PE file name
+ * @v opts		Options
  */
 static void elf2pe ( const char *elf_name, const char *pe_name,
 		     struct options *opts ) {
@@ -1011,13 +1028,13 @@ static void elf2pe ( const char *elf_name, const char *pe_name,
 
 			/* Process .rel relocations */
 			process_relocs ( &elf, shdr, sizeof ( Elf_Rel ),
-					 &pe_reltab );
+					 &pe_reltab, opts );
 
 		} else if ( shdr->sh_type == SHT_RELA ) {
 
 			/* Process .rela relocations */
 			process_relocs ( &elf, shdr, sizeof ( Elf_Rela ),
-					 &pe_reltab );
+					 &pe_reltab, opts );
 		}
 	}
 
@@ -1070,11 +1087,12 @@ static int parse_options ( const int argc, char **argv,
 		int option_index = 0;
 		static struct option long_options[] = {
 			{ "subsystem", required_argument, NULL, 's' },
+			{ "hybrid", no_argument, NULL, 'H' },
 			{ "help", 0, NULL, 'h' },
 			{ 0, 0, 0, 0 }
 		};
 
-		if ( ( c = getopt_long ( argc, argv, "s:h",
+		if ( ( c = getopt_long ( argc, argv, "s:Hh",
 					 long_options,
 					 &option_index ) ) == -1 ) {
 			break;
@@ -1088,6 +1106,9 @@ static int parse_options ( const int argc, char **argv,
 					  optarg );
 				exit ( 2 );
 			}
+			break;
+		case 'H':
+			opts->hybrid = 1;
 			break;
 		case 'h':
 			print_help ( argv[0] );
