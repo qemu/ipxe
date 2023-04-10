@@ -186,6 +186,7 @@ struct pe_section {
 	struct pe_section *next;
 	EFI_IMAGE_SECTION_HEADER hdr;
 	void ( * fixup ) ( struct pe_section *section );
+	int hidden;
 	uint8_t contents[0];
 };
 
@@ -635,6 +636,8 @@ static struct pe_section * process_section ( struct elf_file *elf,
 	new->hdr.SizeOfRawData = section_filesz;
 	if ( shdr->sh_type == SHT_PROGBITS ) {
 		new->hdr.PointerToRawData = elf_lma ( elf, shdr, name );
+		if ( new->hdr.PointerToRawData == 0 )
+			new->hidden = 1;
 	}
 
 	/* Fill in section characteristics and update RVA limits */
@@ -690,10 +693,12 @@ static struct pe_section * process_section ( struct elf_file *elf,
 	/* Update RVA limits */
 	start = new->hdr.VirtualAddress;
 	end = ( start + new->hdr.Misc.VirtualSize );
-	if ( ( ! *applicable_start ) || ( *applicable_start >= start ) )
-		*applicable_start = start;
-	if ( *applicable_end < end )
-		*applicable_end = end;
+	if ( ! new->hidden ) {
+		if ( ( ! *applicable_start ) || ( *applicable_start >= start ) )
+			*applicable_start = start;
+		if ( *applicable_end < end )
+			*applicable_end = end;
+	}
 	if ( data_start < code_end )
 		data_start = code_end;
 	if ( data_mid < data_start )
@@ -713,12 +718,46 @@ static struct pe_section * process_section ( struct elf_file *elf,
 		( data_end - data_mid );
 
 	/* Update remaining file header fields */
-	pe_header->nt.FileHeader.NumberOfSections++;
-	pe_header->nt.OptionalHeader.SizeOfHeaders += sizeof ( new->hdr );
+	if ( ! new->hidden ) {
+		pe_header->nt.FileHeader.NumberOfSections++;
+		pe_header->nt.OptionalHeader.SizeOfHeaders +=
+			sizeof ( new->hdr );
+	}
 	pe_header->nt.OptionalHeader.SizeOfImage =
 		efi_image_align ( data_end );
 
 	return new;
+}
+
+/**
+ * Update image base address
+ *
+ * @v pe_header		PE file header
+ * @v pe_sections	List of PE sections
+ */
+static void update_image_base ( struct pe_header *pe_header,
+				struct pe_section *pe_sections ) {
+	struct pe_section *section;
+	unsigned long base;
+
+	/* Set ImageBase to the highest possible value, leaving space
+	 * for the PE header itself (if not deliberately overlapped).
+	 */
+	for ( section = pe_sections ; section ; section = section->next ) {
+		base = ( section->hdr.VirtualAddress -
+			 section->hdr.PointerToRawData );
+		if ( ( pe_header->nt.OptionalHeader.ImageBase == 0 ) ||
+		     ( pe_header->nt.OptionalHeader.ImageBase > base ) ) {
+			pe_header->nt.OptionalHeader.ImageBase = base;
+		}
+	}
+	base = pe_header->nt.OptionalHeader.ImageBase;
+
+	/* Adjust RVA of all sections to match ImageBase */
+	for ( section = pe_sections ; section ; section = section->next ) {
+		section->hdr.VirtualAddress -= base;
+	}
+	pe_header->nt.OptionalHeader.SizeOfImage -= base;
 }
 
 /**
@@ -948,6 +987,7 @@ create_debug_section ( struct pe_header *pe_header, const char *filename ) {
 				       EFI_IMAGE_SCN_MEM_NOT_PAGED |
 				       EFI_IMAGE_SCN_MEM_READ );
 	debug->fixup = fixup_debug_section;
+	debug->hidden = 1;
 
 	/* Create section contents */
 	contents->debug.TimeDateStamp = 0x10d1a884;
@@ -962,10 +1002,6 @@ create_debug_section ( struct pe_header *pe_header, const char *filename ) {
 		   filename );
 
 	/* Update file header details */
-	pe_header->nt.FileHeader.NumberOfSections++;
-	pe_header->nt.OptionalHeader.SizeOfHeaders += sizeof ( debug->hdr );
-	pe_header->nt.OptionalHeader.SizeOfImage +=
-		efi_image_align ( section_memsz );
 	debugdir = &(pe_header->nt.OptionalHeader.DataDirectory
 		     [EFI_IMAGE_DIRECTORY_ENTRY_DEBUG]);
 	debugdir->VirtualAddress = debug->hdr.VirtualAddress;
@@ -986,6 +1022,7 @@ static void write_pe_file ( struct pe_header *pe_header,
 			    FILE *pe ) {
 	struct pe_section *section;
 	unsigned long fpos = 0;
+	unsigned int count = 0;
 
 	/* Align length of headers */
 	fpos = pe_header->nt.OptionalHeader.SizeOfHeaders =
@@ -1045,12 +1082,16 @@ static void write_pe_file ( struct pe_header *pe_header,
 
 	/* Write section headers */
 	for ( section = pe_sections ; section ; section = section->next ) {
+		if ( section->hidden )
+			continue;
 		if ( fwrite ( &section->hdr, sizeof ( section->hdr ),
 			      1, pe ) != 1 ) {
 			perror ( "Could not write section header" );
 			exit ( 1 );
 		}
+		count++;
 	}
+	assert ( count == pe_header->nt.FileHeader.NumberOfSections );
 }
 
 /**
@@ -1111,6 +1152,9 @@ static void elf2pe ( const char *elf_name, const char *pe_name,
 					 &pe_reltab, opts );
 		}
 	}
+
+	/* Update image base address */
+	update_image_base ( &pe_header, pe_sections );
 
 	/* Create the .reloc section */
 	*(next_pe_section) = create_reloc_section ( &pe_header, pe_reltab );
