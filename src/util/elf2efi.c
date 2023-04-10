@@ -173,6 +173,9 @@
 /** Set PointerToRawData automatically */
 #define PTRD_AUTO 0xffffffffUL
 
+/** Number of data directory entries */
+#define NUMBER_OF_DIRECTORY_ENTRIES 8
+
 struct elf_file {
 	void *data;
 	size_t len;
@@ -209,7 +212,11 @@ static struct pe_header efi_pe_header = {
 		.FileHeader = {
 			.TimeDateStamp = 0x10d1a884,
 			.SizeOfOptionalHeader =
-				sizeof ( efi_pe_header.nt.OptionalHeader ),
+				( sizeof ( efi_pe_header.nt.OptionalHeader ) -
+				  ( ( EFI_IMAGE_NUMBER_OF_DIRECTORY_ENTRIES -
+				      NUMBER_OF_DIRECTORY_ENTRIES ) *
+				    sizeof ( efi_pe_header.nt.OptionalHeader.
+					     DataDirectory[0] ) ) ),
 			.Characteristics = ( EFI_IMAGE_FILE_DLL |
 					     EFI_IMAGE_FILE_MACHINE |
 					     EFI_IMAGE_FILE_EXECUTABLE_IMAGE ),
@@ -222,8 +229,7 @@ static struct pe_header efi_pe_header = {
 			.FileAlignment = EFI_FILE_ALIGN,
 			.SizeOfImage = EFI_IMAGE_ALIGN,
 			.SizeOfHeaders = sizeof ( efi_pe_header ),
-			.NumberOfRvaAndSizes =
-				EFI_IMAGE_NUMBER_OF_DIRECTORY_ENTRIES,
+			.NumberOfRvaAndSizes = NUMBER_OF_DIRECTORY_ENTRIES,
 		},
 	},
 };
@@ -1029,7 +1035,10 @@ static void write_pe_file ( struct pe_header *pe_header,
 		eprintf ( "Could not rewind: %s\n", strerror ( errno ) );
 		exit ( 1 );
 	}
-	if ( fwrite ( pe_header, sizeof ( *pe_header ), 1, pe ) != 1 ) {
+	if ( fwrite ( pe_header,
+		      ( offsetof ( typeof ( *pe_header ), nt.OptionalHeader ) +
+			pe_header->nt.FileHeader.SizeOfOptionalHeader ),
+		      1, pe ) != 1 ) {
 		perror ( "Could not write PE header" );
 		exit ( 1 );
 	}
