@@ -31,6 +31,7 @@ FILE_LICENCE ( GPL2_OR_LATER );
 #include <ipxe/efi/efi_wrap.h>
 #include <ipxe/efi/efi_pxe.h>
 #include <ipxe/efi/efi_driver.h>
+#include <ipxe/efi/efi_image.h>
 #include <ipxe/image.h>
 #include <ipxe/init.h>
 #include <ipxe/features.h>
@@ -54,6 +55,11 @@ FEATURE ( FEATURE_IMAGE, "EFI", DHCP_EB_FEATURE_EFI, 1 );
 	__einfo_uniqify ( EINFO_EPLATFORM, 0x02,			\
 			  "Could not start image" )
 #define EEFI_START( efirc ) EPLATFORM ( EINFO_EEFI_START, efirc )
+
+/** EFI shim image */
+struct image_tag efi_shim __image_tag = {
+	.name = "SHIM",
+};
 
 /**
  * Create device path for image
@@ -104,23 +110,43 @@ efi_image_path ( struct image *image, EFI_DEVICE_PATH_PROTOCOL *parent ) {
 /**
  * Create command line for image
  *
- * @v image             EFI image
+ * @v image		EFI image
+ * @v shim		Shim image, or NULL
  * @ret cmdline		Command line, or NULL on failure
  */
-static wchar_t * efi_image_cmdline ( struct image *image ) {
+static wchar_t * efi_image_cmdline ( struct image *image,
+				     struct image *shim ) {
+	const char *arg0;
+	const char *arg1;
+	const char *args;
 	wchar_t *cmdline;
 	size_t len;
 
-	len = ( strlen ( image->name ) +
-		( image->cmdline ?
-		  ( 1 /* " " */ + strlen ( image->cmdline ) ) : 0 ) );
+	/* Select command line components */
+	arg0 = image->name;
+	arg1 = NULL;
+	args = image->cmdline;
+	if ( shim ) {
+		arg0 = shim->name;
+		if ( shim->cmdline ) {
+			/* "<shim.efi> <shim explicit cmdline>" */
+			args = shim->cmdline;
+		} else {
+			/* "<shim.efi> <image.efi> <image cmdline>" */
+			arg1 = image->name;
+		}
+	}
+
+	/* Allocate and construct command line */
+	len = ( strlen ( arg0 ) +
+		( arg1 ? ( 1 /* " " */ + strlen ( arg1 ) ) : 0 ) +
+		( args ? ( 1 /* " " */ + strlen ( args ) ) : 0 ) );
 	cmdline = zalloc ( ( len + 1 /* NUL */ ) * sizeof ( wchar_t ) );
 	if ( ! cmdline )
 		return NULL;
-	efi_snprintf ( cmdline, ( len + 1 /* NUL */ ), "%s%s%s",
-		       image->name,
-		       ( image->cmdline ? " " : "" ),
-		       ( image->cmdline ? image->cmdline : "" ) );
+	efi_snprintf ( cmdline, ( len + 1 /* NUL */ ), "%s%s%s%s%s", arg0,
+		       ( arg1 ? " " : "" ), arg1, ( args ? " " : "" ), args );
+
 	return cmdline;
 }
 
@@ -138,6 +164,8 @@ static int efi_image_exec ( struct image *image ) {
 		EFI_LOADED_IMAGE_PROTOCOL *image;
 		void *interface;
 	} loaded;
+	struct image *shim;
+	struct image *exec;
 	EFI_HANDLE handle;
 	EFI_MEMORY_TYPE type;
 	wchar_t *cmdline;
@@ -154,6 +182,15 @@ static int efi_image_exec ( struct image *image ) {
 		goto err_no_snpdev;
 	}
 
+	/* Use shim instead of directly executing image if applicable */
+	shim = ( efi_can_load ( image ) ?
+		 NULL : find_image_tag ( &efi_shim ) );
+	exec = ( shim ? shim : image );
+	if ( shim ) {
+		DBGC ( image, "EFIIMAGE %s executing via %s\n",
+		       image->name, shim->name );
+	}
+
 	/* Re-register as a hidden image to allow for access via file I/O */
 	toggle = ( ~image->flags & IMAGE_HIDDEN );
 	image->flags |= IMAGE_HIDDEN;
@@ -167,8 +204,9 @@ static int efi_image_exec ( struct image *image ) {
 		goto err_file_install;
 	}
 
-	/* Install PXE base code protocol */
-	if ( ( rc = efi_pxe_install ( snpdev->handle, snpdev->netdev ) ) != 0 ){
+	/* Install PXE base code protocol (unless using a shim) */
+	if ( ( ! shim ) &&
+	     ( rc = efi_pxe_install ( snpdev->handle, snpdev->netdev ) ) != 0 ){
 		DBGC ( image, "EFIIMAGE %s could not install PXE protocol: "
 		       "%s\n", image->name, strerror ( rc ) );
 		goto err_pxe_install;
@@ -182,7 +220,7 @@ static int efi_image_exec ( struct image *image ) {
 	}
 
 	/* Create device path for image */
-	path = efi_image_path ( image, snpdev->path );
+	path = efi_image_path ( exec, snpdev->path );
 	if ( ! path ) {
 		DBGC ( image, "EFIIMAGE %s could not create device path\n",
 		       image->name );
@@ -191,7 +229,7 @@ static int efi_image_exec ( struct image *image ) {
 	}
 
 	/* Create command line for image */
-	cmdline = efi_image_cmdline ( image );
+	cmdline = efi_image_cmdline ( image, shim );
 	if ( ! cmdline ) {
 		DBGC ( image, "EFIIMAGE %s could not create command line\n",
 		       image->name );
@@ -202,8 +240,8 @@ static int efi_image_exec ( struct image *image ) {
 	/* Attempt loading image */
 	handle = NULL;
 	if ( ( efirc = bs->LoadImage ( FALSE, efi_image_handle, path,
-				       user_to_virt ( image->data, 0 ),
-				       image->len, &handle ) ) != 0 ) {
+				       user_to_virt ( exec->data, 0 ),
+				       exec->len, &handle ) ) != 0 ) {
 		/* Not an EFI image */
 		rc = -EEFI_LOAD ( efirc );
 		DBGC ( image, "EFIIMAGE %s could not load: %s\n",
@@ -299,7 +337,8 @@ static int efi_image_exec ( struct image *image ) {
  err_image_path:
 	efi_download_uninstall ( snpdev->handle );
  err_download_install:
-	efi_pxe_uninstall ( snpdev->handle );
+	if ( ! shim )
+		efi_pxe_uninstall ( snpdev->handle );
  err_pxe_install:
 	efi_file_uninstall ( snpdev->handle );
  err_file_install:
