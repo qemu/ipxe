@@ -61,6 +61,11 @@ struct image_tag efi_shim __image_tag = {
 	.name = "SHIM",
 };
 
+/** EIF shim crutch image */
+struct image_tag efi_shim_crutch __image_tag = {
+	.name = "SHIMCRUTCH",
+};
+
 /**
  * Create device path for image
  *

@@ -42,6 +42,8 @@ struct shim_options {
 	int always;
 	/** Download timeout */
 	unsigned long timeout;
+	/** Crutch image name or URI */
+	char *crutch;
 };
 
 /** "shim" option list */
@@ -50,6 +52,8 @@ static struct option_descriptor shim_opts[] = {
 		      struct shim_options, always, parse_flag ),
 	OPTION_DESC ( "timeout", 't', required_argument,
 		      struct shim_options, timeout, parse_timeout ),
+	OPTION_DESC ( "crutch", 'c', required_argument,
+		      struct shim_options, crutch, parse_string ),
 };
 
 /** "shim" command descriptor */
@@ -66,6 +70,7 @@ static struct command_descriptor shim_cmd =
 static int shim_exec ( int argc, char **argv ) {
 	struct shim_options opts;
 	struct image *image = NULL;
+	struct image *crutch = NULL;
 	struct image *kernel;
 	char *name_uri;
 	int download;
@@ -89,11 +94,19 @@ static int shim_exec ( int argc, char **argv ) {
 		goto err_image;
 	}
 
+	/* Acquire crutch image, if applicable */
+	if ( download && opts.crutch &&
+	     ( ( rc = imgacquire ( opts.crutch, opts.timeout,
+				   &crutch ) ) != 0 ) ) {
+		goto err_crutch;
+	}
+
 	/* (Un)register as shim */
-	if ( ( rc = shim ( image ) ) != 0 )
+	if ( ( rc = shim ( image, crutch ) ) != 0 )
 		goto err_shim;
 
  err_shim:
+ err_crutch:
  err_image:
  err_parse:
 	return rc;

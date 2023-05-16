@@ -11,6 +11,6 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 
 #include <ipxe/image.h>
 
-extern int shim ( struct image *image );
+extern int shim ( struct image *image, struct image *crutch );
 
 #endif /* _USR_SHIMMGMT_H */

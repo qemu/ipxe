@@ -37,16 +37,20 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
  * Set shim image
  *
  * @v image		Shim image, or NULL to clear shim
+ * @v crutch		Shim crutch image, or NULL to clear crutch
  * @ret rc		Return status code
  */
-int shim ( struct image *image ) {
+int shim ( struct image *image, struct image *crutch ) {
 
-	/* Record (or clear) shim image */
+	/* Record (or clear) shim and crutch images */
 	image_tag ( image, &efi_shim );
+	image_tag ( crutch, &efi_shim_crutch );
 
-	/* Avoid including image in constructed initrd */
+	/* Avoid including images in constructed initrd */
 	if ( image )
 		image_hide ( image );
+	if ( crutch )
+		image_hide ( crutch );
 
 	return 0;
 }
