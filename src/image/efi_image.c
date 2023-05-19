@@ -293,9 +293,6 @@ static int efi_image_exec ( struct image *image ) {
 	/* Wrap calls made by the loaded image (for debugging) */
 	efi_wrap ( handle );
 
-	///
-	DBG ( "***** loaded image systab %p\n", loaded.image->SystemTable );
-
 	/* Reset console since image will probably use it */
 	console_reset();
 

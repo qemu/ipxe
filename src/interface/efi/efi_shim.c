@@ -48,14 +48,17 @@ struct image_tag efi_shim_crutch __image_tag = {
 	.name = "SHIMCRUTCH",
 };
 
-/** Original ExitBootServices() function */
-static EFI_EXIT_BOOT_SERVICES efi_shim_orig_ebs;
+/** Original GetMemoryMap() function */
+static EFI_GET_MEMORY_MAP efi_shim_orig_map;
 
 /**
  * Unlock UEFI shim
  *
- * @v image		Image handle
- * @v key		Map key
+ * @v len		Memory map size
+ * @v map		Memory map
+ * @v key		Memory map key
+ * @v desclen		Descriptor size
+ * @v descver		Descriptor version
  * @ret efirc		EFI status code
  *
  * The UEFI shim is gradually becoming less capable of directly
@@ -65,14 +68,17 @@ static EFI_EXIT_BOOT_SERVICES efi_shim_orig_ebs;
  *
  * For example: shim will erroneously complain if the image that it
  * loads and executes does not call in to the "shim lock protocol"
- * before calling ExitBootServices(), even if there is no valid reason
+ * before calling GetMemoryMap(), even if there is no valid reason
  * for it to have done so.
  *
  * Reduce the Secure Boot attack surface by removing, where possible,
  * this spurious requirement for the use of an additional second stage
  * loader.
  */
-static EFIAPI EFI_STATUS efi_shim_unlock ( EFI_HANDLE image, UINTN key ) {
+static EFIAPI EFI_STATUS efi_shim_unlock ( UINTN *len,
+					   EFI_MEMORY_DESCRIPTOR *map,
+					   UINTN *key, UINTN *desclen,
+					   UINT32 *descver ) {
 	EFI_BOOT_SERVICES *bs = efi_systab->BootServices;
 	uint8_t empty[0];
 	union {
@@ -81,9 +87,6 @@ static EFIAPI EFI_STATUS efi_shim_unlock ( EFI_HANDLE image, UINTN key ) {
 	} u;
 	EFI_STATUS efirc;
 
-	//
-	DBG ( "******** called\n" );
-
 	/* Locate shim lock protocol */
 	if ( ( efirc = bs->LocateProtocol ( &efi_shim_lock_protocol_guid,
 					    NULL, &u.interface ) ) == 0 ) {
@@ -91,8 +94,8 @@ static EFIAPI EFI_STATUS efi_shim_unlock ( EFI_HANDLE image, UINTN key ) {
 		DBGC ( u.lock, "SHIM unlocked %p\n", u.lock );
 	}
 
-	/* Hand off to original ExitBootServices() */
-	return efi_shim_orig_ebs ( image, key );
+	/* Hand off to original GetMemoryMap() */
+	return efi_shim_orig_map ( len, map, key, desclen, descver );
 }
 
 /**
@@ -103,13 +106,9 @@ static EFIAPI EFI_STATUS efi_shim_unlock ( EFI_HANDLE image, UINTN key ) {
 int efi_shim_install (  ) {
 	EFI_BOOT_SERVICES *bs = efi_systab->BootServices;
 
-	/* Intercept ExitBootServices() via boot services table */
-	efi_shim_orig_ebs = bs->ExitBootServices;
-	bs->ExitBootServices = efi_shim_unlock;
-
-	//
-	DBG ( "******** hooked in systab %p\n", efi_systab );
-
+	/* Intercept GetMemoryMap() via boot services table */
+	efi_shim_orig_map = bs->GetMemoryMap;
+	bs->GetMemoryMap = efi_shim_unlock;
 
 	return 0;
 }
@@ -121,6 +120,6 @@ int efi_shim_install (  ) {
 void efi_shim_uninstall ( void ) {
 	EFI_BOOT_SERVICES *bs = efi_systab->BootServices;
 
-	/* Restore original ExitBootServices() */
-	bs->ExitBootServices = efi_shim_orig_ebs;
+	/* Restore original GetMemoryMap() */
+	bs->GetMemoryMap = efi_shim_orig_map;
 }
