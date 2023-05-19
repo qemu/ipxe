@@ -11,9 +11,6 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 
 #include <ipxe/image.h>
 
-extern struct image_tag efi_shim __image_tag;
-extern struct image_tag efi_shim_crutch __image_tag;
-
 extern struct image_type efi_image_type[] __image_type ( PROBE_NORMAL );
 
 /**

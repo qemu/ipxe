@@ -24,7 +24,7 @@
 FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 
 #include <ipxe/efi/efi.h>
-#include <ipxe/efi/efi_image.h>
+#include <ipxe/efi/efi_shim.h>
 #include <usr/shimmgmt.h>
 
 /** @file

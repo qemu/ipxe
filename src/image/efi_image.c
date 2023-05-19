@@ -32,6 +32,7 @@ FILE_LICENCE ( GPL2_OR_LATER );
 #include <ipxe/efi/efi_pxe.h>
 #include <ipxe/efi/efi_driver.h>
 #include <ipxe/efi/efi_image.h>
+#include <ipxe/efi/efi_shim.h>
 #include <ipxe/image.h>
 #include <ipxe/init.h>
 #include <ipxe/features.h>
@@ -55,16 +56,6 @@ FEATURE ( FEATURE_IMAGE, "EFI", DHCP_EB_FEATURE_EFI, 1 );
 	__einfo_uniqify ( EINFO_EPLATFORM, 0x02,			\
 			  "Could not start image" )
 #define EEFI_START( efirc ) EPLATFORM ( EINFO_EEFI_START, efirc )
-
-/** EFI shim image */
-struct image_tag efi_shim __image_tag = {
-	.name = "SHIM",
-};
-
-/** EIF shim crutch image */
-struct image_tag efi_shim_crutch __image_tag = {
-	.name = "SHIMCRUTCH",
-};
 
 /**
  * Create device path for image
@@ -165,6 +156,7 @@ static int efi_image_exec ( struct image *image ) {
 	EFI_BOOT_SERVICES *bs = efi_systab->BootServices;
 	struct efi_snp_device *snpdev;
 	EFI_DEVICE_PATH_PROTOCOL *path;
+	struct efi_shim_unlocker unlocker;
 	union {
 		EFI_LOADED_IMAGE_PROTOCOL *image;
 		void *interface;
@@ -240,6 +232,14 @@ static int efi_image_exec ( struct image *image ) {
 		       image->name );
 		rc = -ENOMEM;
 		goto err_cmdline;
+	}
+
+	/* Install shim unlocker (if using a shim) */
+	if ( shim &&
+	     ( ( rc = efi_shim_install ( &unlocker ) ) != 0 ) ) {
+		DBGC ( image, "EFIIMAGE %s could not install shim unlocker: "
+		       "%s\n", image->name, strerror ( rc ) );
+		goto err_shim_install;
 	}
 
 	/* Attempt loading image */
@@ -336,6 +336,9 @@ static int efi_image_exec ( struct image *image ) {
 	if ( rc != 0 )
 		bs->UnloadImage ( handle );
  err_load_image:
+	if ( shim )
+		efi_shim_uninstall ( &unlocker );
+ err_shim_install:
 	free ( cmdline );
  err_cmdline:
 	free ( path );
