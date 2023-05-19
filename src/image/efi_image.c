@@ -156,7 +156,6 @@ static int efi_image_exec ( struct image *image ) {
 	EFI_BOOT_SERVICES *bs = efi_systab->BootServices;
 	struct efi_snp_device *snpdev;
 	EFI_DEVICE_PATH_PROTOCOL *path;
-	struct efi_shim_unlocker unlocker;
 	union {
 		EFI_LOADED_IMAGE_PROTOCOL *image;
 		void *interface;
@@ -235,8 +234,7 @@ static int efi_image_exec ( struct image *image ) {
 	}
 
 	/* Install shim unlocker (if using a shim) */
-	if ( shim &&
-	     ( ( rc = efi_shim_install ( &unlocker ) ) != 0 ) ) {
+	if ( shim && ( ( rc = efi_shim_install() ) != 0 ) ) {
 		DBGC ( image, "EFIIMAGE %s could not install shim unlocker: "
 		       "%s\n", image->name, strerror ( rc ) );
 		goto err_shim_install;
@@ -295,6 +293,9 @@ static int efi_image_exec ( struct image *image ) {
 	/* Wrap calls made by the loaded image (for debugging) */
 	efi_wrap ( handle );
 
+	///
+	DBG ( "***** loaded image systab %p\n", loaded.image->SystemTable );
+
 	/* Reset console since image will probably use it */
 	console_reset();
 
@@ -337,7 +338,7 @@ static int efi_image_exec ( struct image *image ) {
 		bs->UnloadImage ( handle );
  err_load_image:
 	if ( shim )
-		efi_shim_uninstall ( &unlocker );
+		efi_shim_uninstall();
  err_shim_install:
 	free ( cmdline );
  err_cmdline:

@@ -38,21 +38,25 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 
 FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 
-/** EFI shim image */
+/** UEFI shim image */
 struct image_tag efi_shim __image_tag = {
 	.name = "SHIM",
 };
 
-/** EFI shim crutch image */
+/** UEFI shim crutch image */
 struct image_tag efi_shim_crutch __image_tag = {
 	.name = "SHIMCRUTCH",
 };
 
+/** Original ExitBootServices() function */
+static EFI_EXIT_BOOT_SERVICES efi_shim_orig_ebs;
+
 /**
  * Unlock UEFI shim
  *
- * @v event		Event
- * @v context		Event context
+ * @v image		Image handle
+ * @v key		Map key
+ * @ret efirc		EFI status code
  *
  * The UEFI shim is gradually becoming less capable of directly
  * executing a kernel image, due to an ever increasing list of
@@ -68,77 +72,55 @@ struct image_tag efi_shim_crutch __image_tag = {
  * this spurious requirement for the use of an additional second stage
  * loader.
  */
-static EFIAPI void efi_shim_unlock ( EFI_EVENT event __unused, void *context ) {
+static EFIAPI EFI_STATUS efi_shim_unlock ( EFI_HANDLE image, UINTN key ) {
 	EFI_BOOT_SERVICES *bs = efi_systab->BootServices;
-	EFI_GUID *protocol = &efi_shim_lock_protocol_guid;
-	struct efi_shim_unlocker *unlocker = context;
+	uint8_t empty[0];
 	union {
 		EFI_SHIM_LOCK_PROTOCOL *lock;
 		void *interface;
 	} u;
-	uint8_t empty[0];
 	EFI_STATUS efirc;
 
-	/* Process all new instances of the shim lock protocol */
-	while ( 1 ) {
+	//
+	DBG ( "******** called\n" );
 
-		/* Get next instance */
-		if ( ( efirc = bs->LocateProtocol ( protocol, unlocker->token,
-						    &u.interface ) ) != 0 )
-			break;
-
-		/* Call shim lock protocol with empty buffer */
+	/* Locate shim lock protocol */
+	if ( ( efirc = bs->LocateProtocol ( &efi_shim_lock_protocol_guid,
+					    NULL, &u.interface ) ) == 0 ) {
 		u.lock->Verify ( empty, sizeof ( empty ) );
-		DBGC ( unlocker, "SHIM unlocked %p\n", u.interface );
+		DBGC ( u.lock, "SHIM unlocked %p\n", u.lock );
 	}
+
+	/* Hand off to original ExitBootServices() */
+	return efi_shim_orig_ebs ( image, key );
 }
 
 /**
  * Install UEFI shim unlocker
  *
- * @v unlocker		Shim unlocker
  * @ret rc		Return status code
  */
-int efi_shim_install ( struct efi_shim_unlocker *unlocker ) {
+int efi_shim_install (  ) {
 	EFI_BOOT_SERVICES *bs = efi_systab->BootServices;
-	EFI_GUID *protocol = &efi_shim_lock_protocol_guid;
-	EFI_STATUS efirc;
-	int rc;
 
-	/* Create event */
-	if ( ( efirc = bs->CreateEvent ( EVT_NOTIFY_SIGNAL, TPL_CALLBACK,
-					 efi_shim_unlock, unlocker,
-					 &unlocker->event ) ) != 0 ) {
-		rc = -EEFI ( efirc );
-		DBGC ( unlocker, "SHIM could not create event: %s\n",
-		       strerror ( rc ) );
-		goto err_create_event;
-	}
+	/* Intercept ExitBootServices() via boot services table */
+	efi_shim_orig_ebs = bs->ExitBootServices;
+	bs->ExitBootServices = efi_shim_unlock;
 
-	/* Register for protocol installations */
-	if ( ( efirc = bs->RegisterProtocolNotify ( protocol, unlocker->event,
-						    &unlocker->token ) ) != 0){
-		rc = -EEFI ( efirc );
-		DBGC ( unlocker, "SHIM could not register for protocols: %s\n",
-		       strerror ( rc ) );
-		goto err_register_notify;
-	}
+	//
+	DBG ( "******** hooked in systab %p\n", efi_systab );
+
 
 	return 0;
-
- err_register_notify:
-	bs->CloseEvent ( unlocker->event );
- err_create_event:
-	return rc;
 }
 
 /**
  * Uninstall UEFI shim unlocker
  *
- * @v unlocker		Shim unlocker
  */
-void efi_shim_uninstall ( struct efi_shim_unlocker *unlocker ) {
+void efi_shim_uninstall ( void ) {
 	EFI_BOOT_SERVICES *bs = efi_systab->BootServices;
 
-	bs->CloseEvent ( unlocker->event );
+	/* Restore original ExitBootServices() */
+	bs->ExitBootServices = efi_shim_orig_ebs;
 }
