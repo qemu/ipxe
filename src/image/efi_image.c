@@ -200,9 +200,8 @@ static int efi_image_exec ( struct image *image ) {
 		goto err_file_install;
 	}
 
-	/* Install PXE base code protocol (unless using a shim) */
-	if ( ( ! shim ) &&
-	     ( rc = efi_pxe_install ( snpdev->handle, snpdev->netdev ) ) != 0 ){
+	/* Install PXE base code protocol */
+	if ( ( rc = efi_pxe_install ( snpdev->handle, snpdev->netdev ) ) != 0 ){
 		DBGC ( image, "EFIIMAGE %s could not install PXE protocol: "
 		       "%s\n", image->name, strerror ( rc ) );
 		goto err_pxe_install;
@@ -233,9 +232,9 @@ static int efi_image_exec ( struct image *image ) {
 		goto err_cmdline;
 	}
 
-	/* Install shim unlocker (if using a shim) */
-	if ( shim && ( ( rc = efi_shim_install() ) != 0 ) ) {
-		DBGC ( image, "EFIIMAGE %s could not install shim unlocker: "
+	/* Install shim special handling if applicable */
+	if ( shim && ( ( rc = efi_shim_install ( snpdev->handle ) ) != 0 ) ) {
+		DBGC ( image, "EFIIMAGE %s could not install shim handling: "
 		       "%s\n", image->name, strerror ( rc ) );
 		goto err_shim_install;
 	}
@@ -343,8 +342,7 @@ static int efi_image_exec ( struct image *image ) {
  err_image_path:
 	efi_download_uninstall ( snpdev->handle );
  err_download_install:
-	if ( ! shim )
-		efi_pxe_uninstall ( snpdev->handle );
+	efi_pxe_uninstall ( snpdev->handle );
  err_pxe_install:
 	efi_file_uninstall ( snpdev->handle );
  err_file_install:

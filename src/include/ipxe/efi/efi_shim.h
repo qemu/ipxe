@@ -3,7 +3,7 @@
 
 /** @file
  *
- * UEFI shim handling
+ * UEFI shim special handling
  *
  */
 
@@ -12,10 +12,12 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #include <ipxe/image.h>
 #include <ipxe/efi/efi.h>
 
+extern int efi_shim_require_loader;
+extern int efi_shim_allow_pxe;
 extern struct image_tag efi_shim __image_tag;
 extern struct image_tag efi_shim_crutch __image_tag;
 
-extern int efi_shim_install ( void );
+extern int efi_shim_install ( EFI_HANDLE handle );
 extern void efi_shim_uninstall ( void );
 
 #endif /* _IPXE_EFI_SHIM_H */

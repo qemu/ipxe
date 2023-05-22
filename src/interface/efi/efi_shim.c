@@ -28,15 +28,59 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #include <ipxe/image.h>
 #include <ipxe/efi/efi.h>
 #include <ipxe/efi/efi_shim.h>
+#include <ipxe/efi/Protocol/PxeBaseCode.h>
 #include <ipxe/efi/Protocol/ShimLock.h>
 
 /** @file
  *
- * UEFI shim handling
+ * UEFI shim special handling
  *
  */
 
 FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
+
+/**
+ * Require use of a third party loader binary
+ *
+ * The UEFI shim is gradually becoming less capable of directly
+ * executing a Linux kernel image, due to an ever increasing list of
+ * assumptions that it will only ever be used in conjunction with a
+ * second stage loader binary such as GRUB.
+ *
+ * For example: shim will erroneously complain if the image that it
+ * loads and executes does not in turn call in to the "shim lock
+ * protocol" to verify a separate newly loaded binary before calling
+ * ExitBootServices(), even if no such separate binary is used or
+ * required.
+ *
+ * Experience shows that there is unfortunately no point in trying to
+ * get a fix for this upstreamed into shim.  We therefore default to
+ * reducing the Secure Boot attack surface by removing, where
+ * possible, this spurious requirement for the use of an additional
+ * second stage loader.
+ *
+ * This option may be used to require the use of an additional second
+ * stage loader binary, in case this behaviour is ever desirable.
+ */
+int efi_shim_require_loader = 0;
+
+/**
+ * Allow use of PXE base code protocol
+ *
+ * We provide shim with access to all of the relevant downloaded files
+ * via our EFI_SIMPLE_FILE_SYSTEM_PROTOCOL interface.  However, shim
+ * will instead try to redownload the files via TFTP since it prefers
+ * to use the EFI_PXE_BASE_CODE_PROTOCOL installed on the same handle.
+ *
+ * Experience shows that there is unfortunately no point in trying to
+ * get a fix for this upstreamed into shim.  We therefore default to
+ * working around this undesirable behaviour by stopping the PXE base
+ * code protocol before invoking shim.
+ *
+ * This option may be used to allow shim to use the PXE base code
+ * protocol, in case this behaviour is ever desirable.
+ */
+int efi_shim_allow_pxe = 0;
 
 /** UEFI shim image */
 struct image_tag efi_shim __image_tag = {
@@ -61,19 +105,6 @@ static EFI_GET_MEMORY_MAP efi_shim_orig_map;
  * @v descver		Descriptor version
  * @ret efirc		EFI status code
  *
- * The UEFI shim is gradually becoming less capable of directly
- * executing a kernel image, due to an ever increasing list of
- * assumptions that it will only ever be used in conjunction with a
- * second stage loader such as GRUB.
- *
- * For example: shim will erroneously complain if the image that it
- * loads and executes does not call in to the "shim lock protocol"
- * before calling GetMemoryMap(), even if there is no valid reason
- * for it to have done so.
- *
- * Reduce the Secure Boot attack surface by removing, where possible,
- * this spurious requirement for the use of an additional second stage
- * loader.
  */
 static EFIAPI EFI_STATUS efi_shim_unlock ( UINTN *len,
 					   EFI_MEMORY_DESCRIPTOR *map,
@@ -91,7 +122,7 @@ static EFIAPI EFI_STATUS efi_shim_unlock ( UINTN *len,
 	if ( ( efirc = bs->LocateProtocol ( &efi_shim_lock_protocol_guid,
 					    NULL, &u.interface ) ) == 0 ) {
 		u.lock->Verify ( empty, sizeof ( empty ) );
-		DBGC ( u.lock, "SHIM unlocked %p\n", u.lock );
+		DBGC ( &efi_shim, "SHIM unlocked via %p\n", u.lock );
 	}
 
 	/* Hand off to original GetMemoryMap() */
@@ -99,22 +130,80 @@ static EFIAPI EFI_STATUS efi_shim_unlock ( UINTN *len,
 }
 
 /**
- * Install UEFI shim unlocker
+ * Inhibit use of PXE base code
  *
+ * @v handle		EFI handle
  * @ret rc		Return status code
  */
-int efi_shim_install (  ) {
+static int efi_shim_inhibit_pxe ( EFI_HANDLE handle ) {
 	EFI_BOOT_SERVICES *bs = efi_systab->BootServices;
+	union {
+		EFI_PXE_BASE_CODE_PROTOCOL *pxe;
+		void *interface;
+	} u;
+	EFI_STATUS efirc;
+	int rc;
 
-	/* Intercept GetMemoryMap() via boot services table */
-	efi_shim_orig_map = bs->GetMemoryMap;
-	bs->GetMemoryMap = efi_shim_unlock;
+	/* Locate PXE base code */
+	if ( ( efirc = bs->OpenProtocol ( handle,
+					  &efi_pxe_base_code_protocol_guid,
+					  &u.interface, efi_image_handle, NULL,
+					  EFI_OPEN_PROTOCOL_GET_PROTOCOL ))!=0){
+		rc = -EEFI ( efirc );
+		DBGC ( &efi_shim, "SHIM could not open PXE base code: %s\n",
+		       strerror ( rc ) );
+		goto err_no_base;
+	}
 
-	return 0;
+	/* Stop PXE base code */
+	if ( ( efirc = u.pxe->Stop ( u.pxe ) ) != 0 ) {
+		rc = -EEFI ( efirc );
+		DBGC ( &efi_shim, "SHIM could not stop PXE base code: %s\n",
+		       strerror ( rc ) );
+		goto err_stop;
+	}
+
+	/* Success */
+	rc = 0;
+	DBGC ( &efi_shim, "SHIM stopped PXE base code\n" );
+
+ err_stop:
+	bs->CloseProtocol ( handle, &efi_pxe_base_code_protocol_guid,
+			    efi_image_handle, NULL );
+ err_no_base:
+	return rc;
 }
 
 /**
- * Uninstall UEFI shim unlocker
+ * Install UEFI shim special handling
+ *
+ * @v handle		EFI handle
+ * @ret rc		Return status code
+ */
+int efi_shim_install ( EFI_HANDLE handle ) {
+	EFI_BOOT_SERVICES *bs = efi_systab->BootServices;
+	int rc;
+
+	/* Intercept GetMemoryMap() via boot services table */
+	efi_shim_orig_map = bs->GetMemoryMap;
+	if ( ! efi_shim_require_loader )
+		bs->GetMemoryMap = efi_shim_unlock;
+
+	/* Stop PXE base code */
+	if ( ( ! efi_shim_allow_pxe ) &&
+	     ( ( rc = efi_shim_inhibit_pxe ( handle ) ) != 0 ) ) {
+		goto err_inhibit_pxe;
+	}
+
+	return 0;
+
+ err_inhibit_pxe:
+	bs->GetMemoryMap = efi_shim_orig_map;
+	return rc;
+}
+
+/**
+ * Uninstall UEFI shim special handling
  *
  */
 void efi_shim_uninstall ( void ) {
