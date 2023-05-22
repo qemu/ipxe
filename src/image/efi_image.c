@@ -106,43 +106,23 @@ efi_image_path ( struct image *image, EFI_DEVICE_PATH_PROTOCOL *parent ) {
 /**
  * Create command line for image
  *
- * @v image		EFI image
- * @v shim		Shim image, or NULL
+ * @v image             EFI image
  * @ret cmdline		Command line, or NULL on failure
  */
-static wchar_t * efi_image_cmdline ( struct image *image,
-				     struct image *shim ) {
-	const char *arg0;
-	const char *arg1;
-	const char *args;
+static wchar_t * efi_image_cmdline ( struct image *image ) {
 	wchar_t *cmdline;
 	size_t len;
 
-	/* Select command line components */
-	arg0 = image->name;
-	arg1 = NULL;
-	args = image->cmdline;
-	if ( shim ) {
-		arg0 = shim->name;
-		if ( shim->cmdline ) {
-			/* "<shim.efi> <shim explicit cmdline>" */
-			args = shim->cmdline;
-		} else {
-			/* "<shim.efi> <image.efi> <image cmdline>" */
-			arg1 = image->name;
-		}
-	}
-
-	/* Allocate and construct command line */
-	len = ( strlen ( arg0 ) +
-		( arg1 ? ( 1 /* " " */ + strlen ( arg1 ) ) : 0 ) +
-		( args ? ( 1 /* " " */ + strlen ( args ) ) : 0 ) );
+	len = ( strlen ( image->name ) +
+		( image->cmdline ?
+		  ( 1 /* " " */ + strlen ( image->cmdline ) ) : 0 ) );
 	cmdline = zalloc ( ( len + 1 /* NUL */ ) * sizeof ( wchar_t ) );
 	if ( ! cmdline )
 		return NULL;
-	efi_snprintf ( cmdline, ( len + 1 /* NUL */ ), "%s%s%s%s%s", arg0,
-		       ( arg1 ? " " : "" ), arg1, ( args ? " " : "" ), args );
-
+	efi_snprintf ( cmdline, ( len + 1 /* NUL */ ), "%s%s%s",
+		       image->name,
+		       ( image->cmdline ? " " : "" ),
+		       ( image->cmdline ? image->cmdline : "" ) );
 	return cmdline;
 }
 
@@ -224,7 +204,7 @@ static int efi_image_exec ( struct image *image ) {
 	}
 
 	/* Create command line for image */
-	cmdline = efi_image_cmdline ( image, shim );
+	cmdline = efi_image_cmdline ( image );
 	if ( ! cmdline ) {
 		DBGC ( image, "EFIIMAGE %s could not create command line\n",
 		       image->name );
