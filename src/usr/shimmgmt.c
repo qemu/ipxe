@@ -38,9 +38,12 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
  *
  * @v image		Shim image, or NULL to clear shim
  * @v crutch		Shim crutch image, or NULL to clear crutch
+ * @v require_loader	Require use of a third party loader
+ * @v allow_pxe		Allow use of PXE base code
  * @ret rc		Return status code
  */
-int shim ( struct image *image, struct image *crutch ) {
+int shim ( struct image *image, struct image *crutch,
+	   int require_loader, int allow_pxe ) {
 
 	/* Record (or clear) shim and crutch images */
 	image_tag ( image, &efi_shim );
@@ -51,6 +54,10 @@ int shim ( struct image *image, struct image *crutch ) {
 		image_hide ( image );
 	if ( crutch )
 		image_hide ( crutch );
+
+	/* Record configuration */
+	efi_shim_require_loader = require_loader;
+	efi_shim_allow_pxe = allow_pxe;
 
 	return 0;
 }
