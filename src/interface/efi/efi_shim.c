@@ -24,9 +24,11 @@
 FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 
 #include <string.h>
+#include <stdlib.h>
 #include <errno.h>
 #include <ipxe/image.h>
 #include <ipxe/efi/efi.h>
+#include <ipxe/efi/efi_strings.h>
 #include <ipxe/efi/efi_shim.h>
 #include <ipxe/efi/Protocol/PxeBaseCode.h>
 #include <ipxe/efi/Protocol/ShimLock.h>
@@ -175,12 +177,47 @@ static int efi_shim_inhibit_pxe ( EFI_HANDLE handle ) {
 }
 
 /**
- * Install UEFI shim special handling
+ * Update command line
  *
- * @v handle		EFI handle
+ * @v shim		Shim image
+ * @v cmdline		Command line to update
  * @ret rc		Return status code
  */
-int efi_shim_install ( EFI_HANDLE handle ) {
+static int efi_shim_cmdline ( struct image *shim, wchar_t **cmdline ) {
+	wchar_t *shimcmdline;
+	int len;
+	int rc;
+
+	/* Construct new command line */
+	len = ( shim->cmdline ?
+		efi_asprintf ( &shimcmdline, "%s %s", shim->name,
+			       shim->cmdline ) :
+		efi_asprintf ( &shimcmdline, "%s %ls", shim->name,
+			       *cmdline ) );
+	if ( len < 0 ) {
+		rc = len;
+		DBGC ( &efi_shim, "SHIM could not construct command line: "
+		       "%s\n", strerror ( rc ) );
+		return rc;
+	}
+
+	/* Replace command line */
+	free ( *cmdline );
+	*cmdline = shimcmdline;
+
+	return 0;
+}
+
+/**
+ * Install UEFI shim special handling
+ *
+ * @v shim		Shim image
+ * @v handle		EFI device handle
+ * @v cmdline		Command line to update
+ * @ret rc		Return status code
+ */
+int efi_shim_install ( struct image *shim, EFI_HANDLE handle,
+		       wchar_t **cmdline ) {
 	EFI_BOOT_SERVICES *bs = efi_systab->BootServices;
 	int rc;
 
@@ -195,8 +232,13 @@ int efi_shim_install ( EFI_HANDLE handle ) {
 		goto err_inhibit_pxe;
 	}
 
+	/* Update command line */
+	if ( ( rc = efi_shim_cmdline ( shim, cmdline ) ) != 0 )
+		goto err_cmdline;
+
 	return 0;
 
+ err_cmdline:
  err_inhibit_pxe:
 	bs->GetMemoryMap = efi_shim_orig_map;
 	return rc;

@@ -209,7 +209,9 @@ static int efi_image_exec ( struct image *image ) {
 	}
 
 	/* Install shim special handling if applicable */
-	if ( shim && ( ( rc = efi_shim_install ( snpdev->handle ) ) != 0 ) ) {
+	if ( shim &&
+	     ( ( rc = efi_shim_install ( shim, snpdev->handle,
+					 &cmdline ) ) != 0 ) ){
 		DBGC ( image, "EFIIMAGE %s could not install shim handling: "
 		       "%s\n", image->name, strerror ( rc ) );
 		goto err_shim_install;

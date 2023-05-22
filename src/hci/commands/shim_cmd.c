@@ -38,22 +38,26 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 
 /** "shim" options */
 struct shim_options {
-	/** Always download shim */
-	int always;
 	/** Download timeout */
 	unsigned long timeout;
 	/** Crutch image name or URI */
 	char *crutch;
+	/** Require third party loader */
+	int require_loader;
+	/** Allow PXE base code protocol */
+	int allow_pxe;
 };
 
 /** "shim" option list */
 static struct option_descriptor shim_opts[] = {
-	OPTION_DESC ( "always", 'a', no_argument,
-		      struct shim_options, always, parse_flag ),
 	OPTION_DESC ( "timeout", 't', required_argument,
 		      struct shim_options, timeout, parse_timeout ),
 	OPTION_DESC ( "crutch", 'c', required_argument,
 		      struct shim_options, crutch, parse_string ),
+	OPTION_DESC ( "require-loader", 'l', no_argument,
+		      struct shim_options, require_loader, parse_flag ),
+	OPTION_DESC ( "allow-pxe", 'p', no_argument,
+		      struct shim_options, allow_pxe, parse_flag ),
 };
 
 /** "shim" command descriptor */
@@ -82,7 +86,7 @@ static int shim_exec ( int argc, char **argv ) {
 
 	/* Decide whether or not to download images */
 	kernel = find_image_tag ( &selected_image );
-	download = ( ( kernel && efi_can_load ( kernel ) ) ? opts.always : 1 );
+	download = ( ! ( kernel && efi_can_load ( kernel ) ) );
 
 	/* Parse name/URI string */
 	name_uri = argv[optind];
@@ -102,7 +106,8 @@ static int shim_exec ( int argc, char **argv ) {
 	}
 
 	/* (Un)register as shim */
-	if ( ( rc = shim ( image, crutch ) ) != 0 )
+	if ( ( rc = shim ( image, crutch, opts.require_loader,
+			   opts.allow_pxe ) ) != 0 )
 		goto err_shim;
 
  err_shim:

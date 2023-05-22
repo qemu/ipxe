@@ -17,7 +17,8 @@ extern int efi_shim_allow_pxe;
 extern struct image_tag efi_shim __image_tag;
 extern struct image_tag efi_shim_crutch __image_tag;
 
-extern int efi_shim_install ( EFI_HANDLE handle );
+extern int efi_shim_install ( struct image *shim, EFI_HANDLE handle,
+			      wchar_t **cmdline );
 extern void efi_shim_uninstall ( void );
 
 #endif /* _IPXE_EFI_SHIM_H */
