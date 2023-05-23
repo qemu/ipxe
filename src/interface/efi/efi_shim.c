@@ -84,6 +84,26 @@ int efi_shim_require_loader = 0;
  */
 int efi_shim_allow_pxe = 0;
 
+/**
+ * Allow SBAT variable access
+ *
+ * The UEFI shim implements a fairly nicely designed revocation
+ * mechanism designed around the concept of security generations.
+ * Unfortunately nobody in the shim community has thus far added the
+ * relevant metadata to the Linux kernel, with the result that current
+ * versions of shim are incapable of booting current versions of the
+ * Linux kernel.
+ *
+ * Experience shows that there is unfortunately no point in trying to
+ * get a fix for this upstreamed into shim.  We therefore default to
+ * working around this undesirable behaviour by patching accesses to
+ * the "SbatLevel" variable used to hold SBAT configuration.
+ *
+ * This option may be used to allow shim unpatched access to the
+ * "SbatLevel" variable, in case this behaviour is ever desirable.
+ */
+int efi_shim_allow_sbat = 0;
+
 /** UEFI shim image */
 struct image_tag efi_shim __image_tag = {
 	.name = "SHIM",
@@ -101,8 +121,8 @@ static EFI_SET_VARIABLE efi_shim_orig_set_variable;
 /** Original GetVariable() function */
 static EFI_GET_VARIABLE efi_shim_orig_get_variable;
 
-/** Patch reads from SbatLevel variable */
-static int efi_shim_sbatlevel_patch = 1;
+/** Verify read from SbatLevel variable */
+static int efi_shim_sbatlevel_verify;
 
 /**
  * Check if variable is SbatLevel
@@ -205,7 +225,7 @@ efi_shim_set_variable ( CHAR16 *name, EFI_GUID *guid, UINT32 attrs,
 	if ( efi_shim_is_sbatlevel ( name, guid ) && ( efirc == 0 ) ) {
 		DBGC ( &efi_shim, "SHIM detected write to %ls:\n", name );
 		DBGC_HDA ( &efi_shim, 0, data, len );
-		efi_shim_sbatlevel_patch = 0;
+		efi_shim_sbatlevel_verify = 1;
 	}
 
 	return efirc;
@@ -232,14 +252,17 @@ efi_shim_get_variable ( CHAR16 *name, EFI_GUID *guid, UINT32 *attrs,
 
 	/* Patch SbatLevel variable if applicable */
 	if ( efi_shim_is_sbatlevel ( name, guid ) && data && ( efirc == 0 ) ) {
-		if ( efi_shim_sbatlevel_patch ) {
+		if ( efi_shim_allow_sbat ) {
+			DBGC ( &efi_shim, "SHIM allowing read from %ls:\n",
+			       name );
+		} else if ( efi_shim_sbatlevel_verify ) {
+			DBGC ( &efi_shim, "SHIM allowing one read from %ls:\n",
+			       name );
+			efi_shim_sbatlevel_verify = 0;
+		} else {
 			DBGC ( &efi_shim, "SHIM patching read from %ls:\n",
 			       name );
 			value[0] = '\0';
-		} else {
-			DBGC ( &efi_shim, "SHIM allowing one read from %ls:\n",
-			       name );
-			efi_shim_sbatlevel_patch = 1;
 		}
 		DBGC_HDA ( &efi_shim, 0, data, *len );
 	}
