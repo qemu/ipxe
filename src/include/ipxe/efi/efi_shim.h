@@ -12,9 +12,6 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #include <ipxe/image.h>
 #include <ipxe/efi/efi.h>
 
-/** SBAT level variable name */
-#define EFI_SHIM_SBAT_LEVEL L"SbatLevel"
-
 extern int efi_shim_require_loader;
 extern int efi_shim_allow_pxe;
 extern struct image_tag efi_shim __image_tag;
