@@ -92,6 +92,59 @@ struct image_tag efi_shim __image_tag = {
 /** Original GetMemoryMap() function */
 static EFI_GET_MEMORY_MAP efi_shim_orig_map;
 
+/** Original ExitBootServices() function */
+static EFI_EXIT_BOOT_SERVICES efi_shim_orig_ebs;
+
+/** Original GetVariable() function */
+static EFI_GET_VARIABLE efi_shim_orig_get_var;
+
+/** Original SetVariable() function */
+static EFI_SET_VARIABLE efi_shim_orig_set_var;
+static int just_set;
+
+
+
+
+//
+static EFI_STATUS EFIAPI
+efi_shim_get_variable ( CHAR16 *name, EFI_GUID *guid, UINT32 *attrs,
+			UINTN *size, VOID *data ) {
+	static const CHAR16 foo[] = L"SbatLevel";
+	EFI_STATUS efirc;
+
+	efirc = orig_get_var ( name, guid, attrs, size, data );
+	DBGC ( &efi_shim, "**** GetVariable ( %ls, %s ):\n", name,
+	       efi_guid_ntoa ( guid ) );
+
+	if ( ( ! just_set ) &&
+	     ( memcmp ( name, foo, sizeof ( foo ) ) == 0 ) ) {
+		UINT8 *thing = data;
+		DBGC ( &efi_shim, "**** HAHAHAHAHA\n" );
+		*thing = '\0';
+	}
+	if ( data )
+		just_set = 0;
+
+	if ( data )
+		DBGC_HDA ( &efi_shim, 0, data, *size );
+	return efirc;
+}
+
+static EFI_STATUS EFIAPI
+efi_shim_set_variable ( CHAR16 *name, EFI_GUID *guid, UINT32 attrs,
+			UINTN size, VOID *data ) {
+	EFI_STATUS efirc;
+
+	DBGC ( &efi_shim, "**** SetVariable ( %ls, %s ):\n", name,
+	       efi_guid_ntoa ( guid ) );
+	DBGC_HDA ( &efi_shim, 0, data, size );
+	efirc = orig_set_var ( name, guid, attrs, size, data );
+
+	just_set = 1;
+
+	return efirc;
+}
+
 /**
  * Unlock UEFI shim
  *
@@ -205,50 +258,6 @@ static int efi_shim_cmdline ( struct image *shim, wchar_t **cmdline ) {
 	*cmdline = shimcmdline;
 
 	return 0;
-}
-
-static EFI_GET_VARIABLE orig_get_var;
-static EFI_SET_VARIABLE orig_set_var;
-static int just_set;
-
-//
-static EFI_STATUS EFIAPI
-efi_shim_get_variable ( CHAR16 *name, EFI_GUID *guid, UINT32 *attrs,
-			UINTN *size, VOID *data ) {
-	static const CHAR16 foo[] = L"SbatLevel";
-	EFI_STATUS efirc;
-
-	efirc = orig_get_var ( name, guid, attrs, size, data );
-	DBGC ( &efi_shim, "**** GetVariable ( %ls, %s ):\n", name,
-	       efi_guid_ntoa ( guid ) );
-
-	if ( ( ! just_set ) &&
-	     ( memcmp ( name, foo, sizeof ( foo ) ) == 0 ) ) {
-		UINT8 *thing = data;
-		DBGC ( &efi_shim, "**** HAHAHAHAHA\n" );
-		*thing = '\0';
-	}
-	if ( data )
-		just_set = 0;
-
-	if ( data )
-		DBGC_HDA ( &efi_shim, 0, data, *size );
-	return efirc;
-}
-
-static EFI_STATUS EFIAPI
-efi_shim_set_variable ( CHAR16 *name, EFI_GUID *guid, UINT32 attrs,
-			UINTN size, VOID *data ) {
-	EFI_STATUS efirc;
-
-	DBGC ( &efi_shim, "**** SetVariable ( %ls, %s ):\n", name,
-	       efi_guid_ntoa ( guid ) );
-	DBGC_HDA ( &efi_shim, 0, data, size );
-	efirc = orig_set_var ( name, guid, attrs, size, data );
-
-	just_set = 1;
-
-	return efirc;
 }
 
 /**
