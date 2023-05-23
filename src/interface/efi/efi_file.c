@@ -538,6 +538,9 @@ static EFI_STATUS efi_file_read_dir ( struct efi_file *file, UINTN *len,
 
 	/* Construct directory entries for image-backed files */
 	index = file->pos;
+		//
+		DBG ( "***** readdir %d\n", index );
+
 	for_each_image ( image ) {
 
 		/* Skip hidden images */

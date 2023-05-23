@@ -179,6 +179,7 @@ static int efi_shim_inhibit_pxe ( EFI_HANDLE handle ) {
  * @ret rc		Return status code
  */
 static int efi_shim_cmdline ( struct image *shim, wchar_t **cmdline ) {
+	struct image *crutch = find_image_tag ( &efi_shim_crutch );
 	wchar_t *shimcmdline;
 	int len;
 	int rc;
@@ -187,6 +188,9 @@ static int efi_shim_cmdline ( struct image *shim, wchar_t **cmdline ) {
 	len = ( shim->cmdline ?
 		efi_asprintf ( &shimcmdline, "%s %s", shim->name,
 			       shim->cmdline ) :
+		crutch ?
+		efi_asprintf ( &shimcmdline, "%s %s wtf does this do", shim->name,
+			       crutch->name ) :
 		efi_asprintf ( &shimcmdline, "%s %ls", shim->name,
 			       *cmdline ) );
 	if ( len < 0 ) {
@@ -203,6 +207,50 @@ static int efi_shim_cmdline ( struct image *shim, wchar_t **cmdline ) {
 	return 0;
 }
 
+static EFI_GET_VARIABLE orig_get_var;
+static EFI_SET_VARIABLE orig_set_var;
+static int just_set;
+
+//
+static EFI_STATUS EFIAPI
+efi_shim_get_variable ( CHAR16 *name, EFI_GUID *guid, UINT32 *attrs,
+			UINTN *size, VOID *data ) {
+	static const CHAR16 foo[] = L"SbatLevel";
+	EFI_STATUS efirc;
+
+	efirc = orig_get_var ( name, guid, attrs, size, data );
+	DBGC ( &efi_shim, "**** GetVariable ( %ls, %s ):\n", name,
+	       efi_guid_ntoa ( guid ) );
+
+	if ( ( ! just_set ) &&
+	     ( memcmp ( name, foo, sizeof ( foo ) ) == 0 ) ) {
+		UINT8 *thing = data;
+		DBGC ( &efi_shim, "**** HAHAHAHAHA\n" );
+		*thing = '\0';
+	}
+	if ( data )
+		just_set = 0;
+
+	if ( data )
+		DBGC_HDA ( &efi_shim, 0, data, *size );
+	return efirc;
+}
+
+static EFI_STATUS EFIAPI
+efi_shim_set_variable ( CHAR16 *name, EFI_GUID *guid, UINT32 attrs,
+			UINTN size, VOID *data ) {
+	EFI_STATUS efirc;
+
+	DBGC ( &efi_shim, "**** SetVariable ( %ls, %s ):\n", name,
+	       efi_guid_ntoa ( guid ) );
+	DBGC_HDA ( &efi_shim, 0, data, size );
+	efirc = orig_set_var ( name, guid, attrs, size, data );
+
+	just_set = 1;
+
+	return efirc;
+}
+
 /**
  * Install UEFI shim special handling
  *
@@ -214,7 +262,14 @@ static int efi_shim_cmdline ( struct image *shim, wchar_t **cmdline ) {
 int efi_shim_install ( struct image *shim, EFI_HANDLE handle,
 		       wchar_t **cmdline ) {
 	EFI_BOOT_SERVICES *bs = efi_systab->BootServices;
+	EFI_RUNTIME_SERVICES *rs = efi_systab->RuntimeServices;
 	int rc;
+
+	//
+	orig_get_var = rs->GetVariable;
+	orig_set_var = rs->SetVariable;
+	rs->GetVariable = efi_shim_get_variable;
+	rs->SetVariable = efi_shim_set_variable;
 
 	/* Intercept GetMemoryMap() via boot services table */
 	efi_shim_orig_map = bs->GetMemoryMap;
