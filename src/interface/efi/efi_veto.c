@@ -201,8 +201,8 @@ static int efi_veto_uninstall ( struct efi_veto *veto ) {
  * @v protocol		Opened protocol
  * @ret rc		Return status code
  */
-static int efi_veto_close_protocol ( struct efi_veto *veto, EFI_HANDLE handle,
-				     EFI_GUID *protocol ) {
+static int efi_veto_openers ( struct efi_veto *veto, EFI_HANDLE handle,
+			      EFI_GUID *protocol ) {
 	EFI_BOOT_SERVICES *bs = efi_systab->BootServices;
 	EFI_HANDLE driver = veto->driver;
 	EFI_HANDLE image = veto->image;
@@ -255,13 +255,13 @@ static int efi_veto_close_protocol ( struct efi_veto *veto, EFI_HANDLE handle,
 }
 
 /**
- * Close handle potentially opened by an EFI driver
+ * Close and/or uninstall handle potentially used by an EFI driver
  *
  * @v veto		Driver veto
  * @v handle		Potentially opened handle
  * @ret rc		Return status code
  */
-static int efi_veto_close_handle ( struct efi_veto *veto, EFI_HANDLE handle ) {
+static int efi_veto_handle ( struct efi_veto *veto, EFI_HANDLE handle ) {
 	EFI_BOOT_SERVICES *bs = efi_systab->BootServices;
 	EFI_HANDLE driver = veto->driver;
 	EFI_GUID **protocols;
@@ -285,8 +285,7 @@ static int efi_veto_close_handle ( struct efi_veto *veto, EFI_HANDLE handle ) {
 	/* Close each protocol */
 	for ( i = 0 ; i < count ; i++ ) {
 		protocol = protocols[ count - i - 1];
-		if ( ( rc = efi_veto_close_protocol ( veto, handle,
-						      protocol ) ) != 0 )
+		if ( ( rc = efi_veto_openers ( veto, handle, protocol ) ) != 0 )
 			goto err_close;
 	}
 
@@ -300,12 +299,12 @@ static int efi_veto_close_handle ( struct efi_veto *veto, EFI_HANDLE handle ) {
 }
 
 /**
- * Close all remaining handles opened by an EFI driver
+ * Close and/or uninstall all remaining handles used by an EFI driver
  *
  * @v veto		Driver veto
  * @ret rc		Return status code
  */
-static int efi_veto_close ( struct efi_veto *veto ) {
+static int efi_veto_handles ( struct efi_veto *veto ) {
 	EFI_BOOT_SERVICES *bs = efi_systab->BootServices;
 	EFI_HANDLE driver = veto->driver;
 	EFI_HANDLE *handles;
@@ -324,17 +323,15 @@ static int efi_veto_close ( struct efi_veto *veto ) {
 		goto err_list;
 	}
 
-	/* Close each handle */
+	/* Close and/or uninstall each handle */
 	for ( i = 0 ; i < count ; i++ ) {
 		handle = handles[ count - i - 1 ];
-		if ( ( rc = efi_veto_close_handle ( veto, handle ) ) != 0 )
+		if ( ( rc = efi_veto_handle ( veto, handle ) ) != 0 )
 			goto err_close;
 	}
 
 	/* Success */
 	rc = 0;
-	DBGC2 ( driver, "EFIVETO %s closed all remaining handles\n",
-		efi_handle_name ( driver ) );
 
  err_close:
 	bs->FreePool ( handles );
@@ -360,8 +357,8 @@ static int efi_veto_destroy ( struct efi_veto *veto ) {
 	if ( ( rc = efi_veto_uninstall ( veto ) ) != 0 )
 		return rc;
 
-	/* Close any remaining opened handles */
-	if ( ( rc = efi_veto_close ( veto ) ) != 0 )
+	/* Close and/or uninstall any remaining handles */
+	if ( ( rc = efi_veto_handles ( veto ) ) != 0 )
 		return rc;
 
 	DBGC ( driver, "EFIVETO %s forcibly removed\n",
