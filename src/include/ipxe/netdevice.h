@@ -473,22 +473,27 @@ struct net_device {
 struct net_driver {
 	/** Name */
 	const char *name;
+	/** Size of private data */
+	size_t priv_len;
 	/** Probe device
 	 *
 	 * @v netdev		Network device
+	 * @v priv		Private data
 	 * @ret rc		Return status code
 	 */
-	int ( * probe ) ( struct net_device *netdev );
+	int ( * probe ) ( struct net_device *netdev, void *priv );
 	/** Notify of device or link state change
 	 *
 	 * @v netdev		Network device
+	 * @v priv		Private data
 	 */
-	void ( * notify ) ( struct net_device *netdev );
+	void ( * notify ) ( struct net_device *netdev, void *priv );
 	/** Remove device
 	 *
 	 * @v netdev		Network device
+	 * @v priv		Private data
 	 */
-	void ( * remove ) ( struct net_device *netdev );
+	void ( * remove ) ( struct net_device *netdev, void *priv );
 };
 
 /** Network driver table */
