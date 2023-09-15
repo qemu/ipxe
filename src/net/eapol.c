@@ -29,6 +29,7 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 #include <ipxe/iobuf.h>
 #include <ipxe/if_ether.h>
 #include <ipxe/netdevice.h>
+#include <ipxe/retry.h>
 #include <ipxe/eap.h>
 #include <ipxe/eapol.h>
 
@@ -44,6 +45,37 @@ struct net_driver eapol_driver __net_driver;
 static const uint8_t eapol_mac[ETH_ALEN] = {
 	0x01, 0x80, 0xc2, 0x00, 0x00, 0x03
 };
+
+/**
+ * Update EAPoL supplicant state
+ *
+ * @v supplicant	EAPoL supplicant
+ * @v timeout		Timer ticks until next EAPoL-Start (if applicable)
+ */
+static void eapol_update ( struct eapol_supplicant *supplicant,
+			   unsigned long timeout ) {
+	struct net_device *netdev = supplicant->eap.netdev;
+
+	/* Check device and EAP state */
+	if ( netdev_is_open ( netdev ) && netdev_link_ok ( netdev ) ) {
+		if ( supplicant->eap.done ) {
+
+			/* EAP has completed: stop sending EAPoL-Start */
+			stop_timer ( &supplicant->timer );
+
+		} else if ( ! timer_running ( &supplicant->timer ) ) {
+
+			/* EAP has not yet begun: start sending EAPoL-Start */
+			start_timer_fixed ( &supplicant->timer, timeout );
+		}
+
+	} else {
+
+		/* Not ready: clear completion and stop sending EAPoL-Start */
+		supplicant->eap.done = 0;
+		stop_timer ( &supplicant->timer );
+	}
+}
 
 /**
  * Process EAPoL packet
@@ -143,6 +175,9 @@ static int eapol_eap_rx ( struct eapol_supplicant *supplicant,
 		goto drop;
 	}
 
+	/* Update supplicant state */
+	eapol_update ( supplicant, EAPOL_START_INTERVAL );
+
  drop:
 	free_iob ( iobuf );
 	return rc;
@@ -214,6 +249,23 @@ static int eapol_eap_tx ( struct eap_supplicant *eap, const void *data,
 }
 
 /**
+ * (Re)transmit EAPoL-Start packet
+ *
+ * @v timer		EAPoL-Start timer
+ * @v expired		Failure indicator
+ */
+static void eapol_expired ( struct retry_timer *timer, int fail __unused ) {
+	struct eapol_supplicant *supplicant =
+		container_of ( timer, struct eapol_supplicant, timer );
+
+	/* Schedule next transmission */
+	start_timer_fixed ( timer, EAPOL_START_INTERVAL );
+
+	/* Transmit EAPoL-Start, ignoring errors */
+	eapol_tx ( supplicant, EAPOL_TYPE_START, NULL, 0 );
+}
+
+/**
  * Create EAPoL supplicant
  *
  * @v netdev		Network device
@@ -226,8 +278,22 @@ static int eapol_probe ( struct net_device *netdev, void *priv ) {
 	/* Initialise structure */
 	supplicant->eap.netdev = netdev;
 	supplicant->eap.tx = eapol_eap_tx;
+	timer_init ( &supplicant->timer, eapol_expired, &netdev->refcnt );
 
 	return 0;
+}
+
+/**
+ * Handle EAPoL supplicant state change
+ *
+ * @v netdev		Network device
+ * @v priv		Private data
+ */
+static void eapol_notify ( struct net_device *netdev __unused, void *priv ) {
+	struct eapol_supplicant *supplicant = priv;
+
+	/* Update supplicant state */
+	eapol_update ( supplicant, 0 );
 }
 
 /** EAPoL driver */
@@ -235,4 +301,5 @@ struct net_driver eapol_driver __net_driver = {
 	.name = "EAPoL",
 	.priv_len = sizeof ( struct eapol_supplicant ),
 	.probe = eapol_probe,
+	.notify = eapol_notify,
 };
