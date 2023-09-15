@@ -38,6 +38,13 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
  *
  */
 
+struct net_driver eapol_driver __net_driver;
+
+/** EAPoL destination MAC address */
+static const uint8_t eapol_mac[ETH_ALEN] = {
+	0x01, 0x80, 0xc2, 0x00, 0x00, 0x03
+};
+
 /**
  * Process EAPoL packet
  *
@@ -51,11 +58,15 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 static int eapol_rx ( struct io_buffer *iobuf, struct net_device *netdev,
 		      const void *ll_dest __unused, const void *ll_source,
 		      unsigned int flags __unused ) {
+	struct eapol_supplicant *supplicant;
 	struct eapol_header *eapol;
 	struct eapol_handler *handler;
 	size_t remaining;
 	size_t len;
 	int rc;
+
+	/* Find matching supplicant */
+	supplicant = netdev_priv ( netdev, &eapol_driver );
 
 	/* Sanity checks */
 	if ( iob_len ( iobuf ) < sizeof ( *eapol ) ) {
@@ -83,7 +94,7 @@ static int eapol_rx ( struct io_buffer *iobuf, struct net_device *netdev,
 	/* Handle according to type */
 	for_each_table_entry ( handler, EAPOL_HANDLERS ) {
 		if ( handler->type == eapol->type ) {
-			return handler->rx ( iob_disown ( iobuf ) , netdev,
+			return handler->rx ( supplicant, iob_disown ( iobuf ),
 					     ll_source );
 		}
 	}
@@ -107,12 +118,14 @@ struct net_protocol eapol_protocol __net_protocol = {
 /**
  * Process EAPoL-encapsulated EAP packet
  *
- * @v netdev		Network device
+ * @v supplicant	EAPoL supplicant
  * @v ll_source		Link-layer source address
  * @ret rc		Return status code
  */
-static int eapol_eap_rx ( struct io_buffer *iobuf, struct net_device *netdev,
+static int eapol_eap_rx ( struct eapol_supplicant *supplicant,
+			  struct io_buffer *iobuf,
 			  const void *ll_source __unused ) {
+	struct net_device *netdev = supplicant->eap.netdev;
 	struct eapol_header *eapol;
 	int rc;
 
@@ -123,7 +136,8 @@ static int eapol_eap_rx ( struct io_buffer *iobuf, struct net_device *netdev,
 	eapol = iob_pull ( iobuf, sizeof ( *eapol ) );
 
 	/* Process EAP packet */
-	if ( ( rc = eap_rx ( netdev, iobuf->data, iob_len ( iobuf ) ) ) != 0 ) {
+	if ( ( rc = eap_rx ( &supplicant->eap, iobuf->data,
+			     iob_len ( iobuf ) ) ) != 0 ) {
 		DBGC ( netdev, "EAPOL %s v%d EAP failed: %s\n",
 		       netdev->name, eapol->version, strerror ( rc ) );
 		goto drop;
@@ -138,4 +152,87 @@ static int eapol_eap_rx ( struct io_buffer *iobuf, struct net_device *netdev,
 struct eapol_handler eapol_eap __eapol_handler = {
 	.type = EAPOL_TYPE_EAP,
 	.rx = eapol_eap_rx,
+};
+
+/**
+ * Transmit EAPoL packet
+ *
+ * @v supplicant	EAPoL supplicant
+ * @v type		Packet type
+ * @v data		Packet body
+ * @v len		Length of packet body
+ * @ret rc		Return status code
+ */
+static int eapol_tx ( struct eapol_supplicant *supplicant, unsigned int type,
+		      const void *data, size_t len ) {
+	struct net_device *netdev = supplicant->eap.netdev;
+	struct io_buffer *iobuf;
+	struct eapol_header *eapol;
+	int rc;
+
+	/* Allocate I/O buffer */
+	iobuf = alloc_iob ( MAX_LL_HEADER_LEN + sizeof ( *eapol ) + len );
+	if ( ! iobuf )
+		return -ENOMEM;
+	iob_reserve ( iobuf, MAX_LL_HEADER_LEN );
+
+	/* Construct EAPoL header */
+	eapol = iob_put ( iobuf, sizeof ( *eapol ) );
+	eapol->version = EAPOL_VERSION_2001;
+	eapol->type = type;
+	eapol->len = htons ( len );
+
+	/* Append packet body */
+	memcpy ( iob_put ( iobuf, len ), data, len );
+
+	/* Transmit packet */
+	if ( ( rc = net_tx ( iob_disown ( iobuf ), netdev, &eapol_protocol,
+			     &eapol_mac, netdev->ll_addr ) ) != 0 ) {
+		DBGC ( netdev, "EAPOL %s could not transmit type %d: %s\n",
+		       netdev->name, type, strerror ( rc ) );
+		DBGC_HDA ( netdev, 0, data, len );
+		return rc;
+	}
+
+	return 0;
+}
+
+/**
+ * Transmit EAPoL-encapsulated EAP packet
+ *
+ * @v supplicant	EAPoL supplicant
+ * @v ll_source		Link-layer source address
+ * @ret rc		Return status code
+ */
+static int eapol_eap_tx ( struct eap_supplicant *eap, const void *data,
+			  size_t len ) {
+	struct eapol_supplicant *supplicant =
+		container_of ( eap, struct eapol_supplicant, eap );
+
+	/* Transmit encapsulated packet */
+	return eapol_tx ( supplicant, EAPOL_TYPE_EAP, data, len );
+}
+
+/**
+ * Create EAPoL supplicant
+ *
+ * @v netdev		Network device
+ * @v priv		Private data
+ * @ret rc		Return status code
+ */
+static int eapol_probe ( struct net_device *netdev, void *priv ) {
+	struct eapol_supplicant *supplicant = priv;
+
+	/* Initialise structure */
+	supplicant->eap.netdev = netdev;
+	supplicant->eap.tx = eapol_eap_tx;
+
+	return 0;
+}
+
+/** EAPoL driver */
+struct net_driver eapol_driver __net_driver = {
+	.name = "EAPoL",
+	.priv_len = sizeof ( struct eapol_supplicant ),
+	.probe = eapol_probe,
 };
