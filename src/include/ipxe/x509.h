@@ -171,6 +171,23 @@ struct x509_link {
 	struct list_head list;
 	/** Certificate */
 	struct x509_certificate *cert;
+	/** Flags */
+	unsigned int flags;
+};
+
+/** X.509 certficate chain link flags */
+enum x509_link_flags {
+	/** OCSP has been attempted
+	 *
+	 * This indicates that an OCSP attempt has been made using
+	 * this link's certificate as an issuer.  (We record the flag
+	 * on the issuer rather than on the issued certificate, since
+	 * we want to retry OCSP when an issuer is replaced with a
+	 * downloaded cross-signed certificate.)
+	 */
+	X509_LINK_FL_OCSP = 0x0001,
+	/** Cross-signed certificate download has been attempted */
+	X509_LINK_FL_CROSS = 0x0002,
 };
 
 /** An X.509 certificate chain */
