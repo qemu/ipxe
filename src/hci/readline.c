@@ -278,6 +278,7 @@ int readline_history ( const char *prompt, const char *prefill,
 	/* Prefill string */
 	if ( ( rc = replace_string ( &string, prefill ) ) != 0 )
 		goto error;
+	assert ( *line != NULL );
 	sync_console ( &string );
 
 	while ( 1 ) {
