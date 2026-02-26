@@ -171,6 +171,9 @@ static int cachedhcp_apply ( struct cached_dhcp_packet *cache,
 		settings = netdev_settings ( netdev );
 		DBGC ( colour, "CACHEDHCP %s is for %s\n",
 		       cache->name, netdev->name );
+
+		/* Mark network device to be opened automatically */
+		netdev->state |= NETDEV_AUTO_OPEN;
 	}
 
 	/* Register settings */

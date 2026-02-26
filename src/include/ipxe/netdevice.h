@@ -461,6 +461,9 @@ struct net_device {
 /** Network device must be polled even when closed */
 #define NETDEV_INSOMNIAC 0x0040
 
+/** Network device should be opened automatically */
+#define NETDEV_AUTO_OPEN 0x0080
+
 /** Link-layer protocol table */
 #define LL_PROTOCOLS __table ( struct ll_protocol, "ll_protocols" )
 

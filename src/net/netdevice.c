@@ -836,6 +836,10 @@ int register_netdev ( struct net_device *netdev ) {
 		}
 	}
 
+	/* Attempt to open device automatically, if applicable */
+	if ( netdev->state & NETDEV_AUTO_OPEN )
+		netdev_open ( netdev );
+
 	return 0;
 
  err_probe:
