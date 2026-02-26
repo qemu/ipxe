@@ -207,15 +207,26 @@ struct dynamic_item * dynui_item ( struct dynamic_ui *dynui,
  *
  * @v dynui		Dynamic user interface
  * @v key		Shortcut key
+ * @v index		Starting index
  * @ret item		User interface item, or NULL if not found
  */
-struct dynamic_item * dynui_shortcut ( struct dynamic_ui *dynui, int key ) {
+struct dynamic_item * dynui_shortcut ( struct dynamic_ui *dynui, int key,
+				       unsigned int index ) {
 	struct dynamic_item *item;
 
+	/* Do nothing unless shortcut key is set */
+	if ( ! key )
+		return NULL;
+
+	/* Search from current list index */
 	list_for_each_entry ( item, &dynui->items, list ) {
-		if ( key && ( key == item->shortcut ) )
+		if ( ( key == item->shortcut ) && ( item->index >= index ) )
 			return item;
 	}
+
+	/* If not found, search again from start of list */
+	if ( index )
+		return dynui_shortcut ( dynui, key, 0 );
 
 	return NULL;
 }

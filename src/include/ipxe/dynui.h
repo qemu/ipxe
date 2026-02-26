@@ -59,7 +59,7 @@ extern struct dynamic_ui * find_dynui ( const char *name );
 extern struct dynamic_item * dynui_item ( struct dynamic_ui *dynui,
 					  unsigned int index );
 extern struct dynamic_item * dynui_shortcut ( struct dynamic_ui *dynui,
-					      int key );
+					      int key, unsigned int index );
 extern int show_menu ( struct dynamic_ui *dynui, unsigned long timeout,
 		       unsigned long retimeout, const char *select,
 		       struct dynamic_item **selected );

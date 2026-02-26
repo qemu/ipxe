@@ -200,7 +200,8 @@ static int menu_loop ( struct menu_ui *ui, struct dynamic_item **selected ) {
 				chosen = 1;
 				break;
 			default:
-				item = dynui_shortcut ( ui->dynui, key );
+				item = dynui_shortcut ( ui->dynui, key,
+							ui->scroll.current );
 				if ( item ) {
 					ui->scroll.current = item->index;
 					if ( item->name ) {
