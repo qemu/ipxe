@@ -198,6 +198,8 @@ static LIST_HEAD ( tls_sessions );
 static void tls_tx_resume_all ( struct tls_session *session );
 static struct io_buffer * tls_alloc_iob ( struct tls_connection *tls,
 					  size_t len );
+static int tls_send_alert ( struct tls_connection *tls, unsigned int level,
+			    unsigned int description );
 static int tls_send_record ( struct tls_connection *tls, unsigned int type,
 			     struct io_buffer *iobuf );
 static int tls_send_plaintext ( struct tls_connection *tls, unsigned int type,
@@ -419,6 +421,9 @@ static void free_tls ( struct refcnt *refcnt ) {
  * @v rc		Status code
  */
 static void tls_close ( struct tls_connection *tls, int rc ) {
+
+	/* Send closure alert */
+	tls_send_alert ( tls, TLS_ALERT_WARNING, TLS_ALERT_CLOSE_NOTIFY );
 
 	/* Remove pending operations, if applicable */
 	pending_put ( &tls->client.negotiation );
@@ -1996,6 +2001,29 @@ static int tls_send_finished ( struct tls_connection *tls ) {
 	pending_put ( &tls->client.negotiation );
 
 	return 0;
+}
+
+/**
+ * Transmit Alert record
+ *
+ * @v tls		TLS connection
+ * @v level		Alert level
+ * @v description	Alert description
+ * @ret rc		Return status code
+ */
+static int tls_send_alert ( struct tls_connection *tls, unsigned int level,
+			    unsigned int description ) {
+	const struct {
+		uint8_t level;
+		uint8_t description;
+	} __attribute__ (( packed )) alert = {
+		.level = level,
+		.description = description,
+	};
+
+	/* Send record */
+	return tls_send_plaintext ( tls, TLS_TYPE_ALERT, &alert,
+				    sizeof ( alert ) );
 }
 
 /**
