@@ -82,6 +82,9 @@ struct tls_header {
 #define TLS_ALERT_WARNING 1
 #define TLS_ALERT_FATAL 2
 
+/* TLS alert descriptions */
+#define TLS_ALERT_CLOSE_NOTIFY 0
+
 /* TLS cipher specifications */
 #define TLS_RSA_WITH_NULL_MD5 0x0001
 #define TLS_RSA_WITH_NULL_SHA 0x0002

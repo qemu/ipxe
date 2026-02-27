@@ -2060,8 +2060,16 @@ static int tls_new_alert ( struct tls_connection *tls,
 	/* Handle alert */
 	switch ( alert->level ) {
 	case TLS_ALERT_WARNING:
-		DBGC ( tls, "TLS %p received warning alert %d\n",
-		       tls, alert->description );
+		switch ( alert->description ) {
+		case TLS_ALERT_CLOSE_NOTIFY:
+			DBGC ( tls, "TLS %p closed by notification\n", tls );
+			tls_close ( tls, 0 );
+			break;
+		default:
+			DBGC ( tls, "TLS %p received warning alert %d\n",
+			       tls, alert->description );
+			break;
+		}
 		return 0;
 	case TLS_ALERT_FATAL:
 		DBGC ( tls, "TLS %p received fatal alert %d\n",
