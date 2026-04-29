@@ -766,38 +766,6 @@ static int ecdsa_verify_rs ( struct ecdsa_context *ctx ) {
 }
 
 /**
- * Encrypt using ECDSA
- *
- * @v key		Key
- * @v plaintext		Plaintext
- * @v ciphertext	Ciphertext
- * @ret rc		Return status code
- */
-static int ecdsa_encrypt ( const struct asn1_cursor *key __unused,
-			   const struct asn1_cursor *plaintext __unused,
-			   struct asn1_builder *ciphertext __unused ) {
-
-	/* Not a defined operation for ECDSA */
-	return -ENOTTY;
-}
-
-/**
- * Decrypt using ECDSA
- *
- * @v key		Key
- * @v ciphertext	Ciphertext
- * @v plaintext		Plaintext
- * @ret rc		Return status code
- */
-static int ecdsa_decrypt ( const struct asn1_cursor *key __unused,
-			   const struct asn1_cursor *ciphertext __unused,
-			   struct asn1_builder *plaintext __unused ) {
-
-	/* Not a defined operation for ECDSA */
-	return -ENOTTY;
-}
-
-/**
  * Sign digest value using ECDSA
  *
  * @v key		Key
@@ -936,8 +904,8 @@ static int ecdsa_match ( const struct asn1_cursor *private_key,
 /** ECDSA public-key algorithm */
 struct pubkey_algorithm ecdsa_algorithm = {
 	.name		= "ecdsa",
-	.encrypt	= ecdsa_encrypt,
-	.decrypt	= ecdsa_decrypt,
+	.encrypt	= pubkey_null_encrypt,
+	.decrypt	= pubkey_null_decrypt,
 	.sign		= ecdsa_sign,
 	.verify		= ecdsa_verify,
 	.match		= ecdsa_match,

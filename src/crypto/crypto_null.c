@@ -31,6 +31,7 @@ FILE_SECBOOT ( PERMITTED );
  */
 
 #include <string.h>
+#include <errno.h>
 #include <ipxe/crypto.h>
 
 void digest_null_init ( void *ctx __unused ) {
@@ -97,27 +98,27 @@ struct cipher_algorithm cipher_null = {
 int pubkey_null_encrypt ( const struct asn1_cursor *key __unused,
 			  const struct asn1_cursor *plaintext __unused,
 			  struct asn1_builder *ciphertext __unused ) {
-	return 0;
+	return -ENOTTY;
 }
 
 int pubkey_null_decrypt ( const struct asn1_cursor *key __unused,
 			  const struct asn1_cursor *ciphertext __unused,
 			  struct asn1_builder *plaintext __unused ) {
-	return 0;
+	return -ENOTTY;
 }
 
 int pubkey_null_sign ( const struct asn1_cursor *key __unused,
 		       struct digest_algorithm *digest __unused,
 		       const void *value __unused,
 		       struct asn1_builder *signature __unused ) {
-	return 0;
+	return -ENOTTY;
 }
 
 int pubkey_null_verify ( const struct asn1_cursor *key __unused,
 			 struct digest_algorithm *digest __unused,
 			 const void *value __unused,
 			 const struct asn1_cursor *signature __unused ) {
-	return 0;
+	return -ENOTTY;
 }
 
 struct pubkey_algorithm pubkey_null = {
