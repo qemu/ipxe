@@ -113,17 +113,16 @@ struct tls_header {
 #define TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 0xc02f
 #define TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 0xc030
 
-/* TLS hash algorithm identifiers */
-#define TLS_MD5_ALGORITHM 1
-#define TLS_SHA1_ALGORITHM 2
-#define TLS_SHA224_ALGORITHM 3
-#define TLS_SHA256_ALGORITHM 4
-#define TLS_SHA384_ALGORITHM 5
-#define TLS_SHA512_ALGORITHM 6
-
-/* TLS signature algorithm identifiers */
-#define TLS_RSA_ALGORITHM 1
-#define TLS_ECDSA_ALGORITHM 3
+/* TLS signature hash algorithm identifiers */
+#define TLS_RSA_SHA1_ALGORITHM 0x0201
+#define TLS_RSA_SHA224_ALGORITHM 0x0301
+#define TLS_ECDSA_SHA224_ALGORITHM 0x0303
+#define TLS_RSA_SHA256_ALGORITHM 0x0401
+#define TLS_ECDSA_SHA256_ALGORITHM 0x0403
+#define TLS_RSA_SHA384_ALGORITHM 0x0501
+#define TLS_ECDSA_SHA384_ALGORITHM 0x0503
+#define TLS_RSA_SHA512_ALGORITHM 0x0601
+#define TLS_ECDSA_SHA512_ALGORITHM 0x0603
 
 /* TLS server name extension */
 #define TLS_SERVER_NAME 0
@@ -279,22 +278,14 @@ struct tls_cipherspec_pair {
 	struct tls_cipherspec pending;
 };
 
-/** A TLS signature and hash algorithm identifier */
-struct tls_signature_hash_id {
-	/** Hash algorithm */
-	uint8_t hash;
-	/** Signature algorithm */
-	uint8_t signature;
-} __attribute__ (( packed ));
-
 /** A TLS signature algorithm */
 struct tls_signature_hash_algorithm {
 	/** Digest algorithm */
 	struct digest_algorithm *digest;
 	/** Public-key algorithm */
 	struct pubkey_algorithm *pubkey;
-	/** Numeric code */
-	struct tls_signature_hash_id code;
+	/** Numeric code (in network-endian order) */
+	uint16_t code;
 };
 
 /** TLS signature hash algorithm table

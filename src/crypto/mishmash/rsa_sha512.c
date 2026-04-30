@@ -24,6 +24,7 @@
 FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 FILE_SECBOOT ( PERMITTED );
 
+#include <byteswap.h>
 #include <ipxe/rsa.h>
 #include <ipxe/sha512.h>
 #include <ipxe/asn1.h>
@@ -54,10 +55,7 @@ struct rsa_digestinfo_prefix rsa_sha512_prefix __rsa_digestinfo_prefix = {
 
 /** RSA with SHA-512 signature hash algorithm */
 struct tls_signature_hash_algorithm tls_rsa_sha512 __tls_sig_hash_algorithm = {
-	.code = {
-		.signature = TLS_RSA_ALGORITHM,
-		.hash = TLS_SHA512_ALGORITHM,
-	},
+	.code = htons ( TLS_RSA_SHA512_ALGORITHM ),
 	.pubkey = &rsa_algorithm,
 	.digest = &sha512_algorithm,
 };

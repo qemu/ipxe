@@ -1033,38 +1033,19 @@ tls_signature_hash_algorithm ( struct pubkey_algorithm *pubkey,
 }
 
 /**
- * Find TLS signature algorithm
+ * Find TLS signature and hash algorithm
  *
  * @v code		Signature and hash algorithm identifier
- * @ret pubkey		Public key algorithm, or NULL
+ * @ret sig_hash	Signature and hash algorithm, or NULL
  */
-static struct pubkey_algorithm *
-tls_signature_hash_pubkey ( struct tls_signature_hash_id code ) {
+static struct tls_signature_hash_algorithm *
+tls_find_signature_hash ( unsigned int code ) {
 	struct tls_signature_hash_algorithm *sig_hash;
 
 	/* Identify signature and hash algorithm */
 	for_each_table_entry ( sig_hash, TLS_SIG_HASH_ALGORITHMS ) {
-		if ( sig_hash->code.signature == code.signature )
-			return sig_hash->pubkey;
-	}
-
-	return NULL;
-}
-
-/**
- * Find TLS hash algorithm
- *
- * @v code		Signature and hash algorithm identifier
- * @ret digest		Digest algorithm, or NULL
- */
-static struct digest_algorithm *
-tls_signature_hash_digest ( struct tls_signature_hash_id code ) {
-	struct tls_signature_hash_algorithm *sig_hash;
-
-	/* Identify signature and hash algorithm */
-	for_each_table_entry ( sig_hash, TLS_SIG_HASH_ALGORITHMS ) {
-		if ( sig_hash->code.hash == code.hash )
-			return sig_hash->digest;
+		if ( sig_hash->code == code )
+			return sig_hash;
 	}
 
 	return NULL;
@@ -1199,8 +1180,7 @@ static int tls_client_hello ( struct tls_connection *tls,
 		uint16_t len;
 		struct {
 			uint16_t len;
-			struct tls_signature_hash_id
-				code[TLS_NUM_SIG_HASH_ALGORITHMS];
+			uint16_t code[TLS_NUM_SIG_HASH_ALGORITHMS];
 		} __attribute__ (( packed )) data;
 	} __attribute__ (( packed )) *signature_algorithms_ext;
 	struct {
@@ -1502,11 +1482,12 @@ struct tls_key_exchange_algorithm tls_pubkey_exchange_algorithm = {
 static int tls_verify_dh_params ( struct tls_connection *tls,
 				  size_t param_len ) {
 	struct tls_cipherspec *cipherspec = &tls->tx.cipherspec.pending;
+	struct tls_signature_hash_algorithm *sig_hash;
 	struct pubkey_algorithm *pubkey;
 	struct digest_algorithm *digest;
 	int use_sig_hash = tls_version ( tls, TLS_VERSION_TLS_1_2 );
 	const struct {
-		struct tls_signature_hash_id sig_hash[use_sig_hash];
+		uint16_t sig_hash[use_sig_hash];
 		uint16_t signature_len;
 		uint8_t signature[0];
 	} __attribute__ (( packed )) *sig;
@@ -1536,13 +1517,16 @@ static int tls_verify_dh_params ( struct tls_connection *tls,
 
 	/* Identify signature and hash algorithm */
 	if ( use_sig_hash ) {
-		pubkey = tls_signature_hash_pubkey ( sig->sig_hash[0] );
-		digest = tls_signature_hash_digest ( sig->sig_hash[0] );
-		if ( ( ! pubkey ) || ( ! digest ) ) {
-			DBGC ( tls, "TLS %p ServerKeyExchange unsupported "
-			       "signature and hash algorithm\n", tls );
+		sig_hash = tls_find_signature_hash ( sig->sig_hash[0] );
+		if ( ! sig_hash ) {
+			DBGC ( tls, "TLS %p unsupported signature hash "
+			       "%#04x\n", tls, sig->sig_hash[0] );
 			return -ENOTSUP_SIG_HASH;
 		}
+		pubkey = sig_hash->pubkey;
+		digest = sig_hash->digest;
+		DBGC ( tls, "TLS %p using signature hash %s-%s\n",
+		       tls, pubkey->name, digest->name );
 		if ( pubkey != cipherspec->suite->pubkey ) {
 			DBGC ( tls, "TLS %p ServerKeyExchange incorrect "
 			       "signature algorithm %s (expected %s)\n", tls,
@@ -1910,7 +1894,7 @@ static int tls_send_certificate_verify ( struct tls_connection *tls ) {
 		int use_sig_hash = ( ( sig_hash == NULL ) ? 0 : 1 );
 		struct {
 			uint32_t type_length;
-			struct tls_signature_hash_id sig_hash[use_sig_hash];
+			uint16_t sig_hash[use_sig_hash];
 			uint16_t signature_len;
 		} __attribute__ (( packed )) header;
 

@@ -24,6 +24,7 @@
 FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
 FILE_SECBOOT ( PERMITTED );
 
+#include <byteswap.h>
 #include <ipxe/ecdsa.h>
 #include <ipxe/sha256.h>
 #include <ipxe/asn1.h>
@@ -43,10 +44,7 @@ struct asn1_algorithm ecdsa_with_sha224_algorithm __asn1_algorithm = {
 /** ECDSA with SHA-224 signature hash algorithm */
 struct tls_signature_hash_algorithm
 tls_ecdsa_sha224 __tls_sig_hash_algorithm = {
-	.code = {
-		.signature = TLS_ECDSA_ALGORITHM,
-		.hash = TLS_SHA224_ALGORITHM,
-	},
+	.code = htons ( TLS_ECDSA_SHA224_ALGORITHM ),
 	.pubkey = &ecdsa_algorithm,
 	.digest = &sha224_algorithm,
 };
