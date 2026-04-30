@@ -37,6 +37,7 @@ FILE_SECBOOT ( PERMITTED );
 #include <ipxe/usb.h>
 #include <ipxe/settings.h>
 #include <ipxe/dhcp.h>
+#include <ipxe/ndp.h>
 #include <ipxe/efi/efi.h>
 #include <ipxe/efi/efi_driver.h>
 #include <ipxe/efi/efi_strings.h>
@@ -248,6 +249,30 @@ unsigned int efi_path_vlan ( EFI_DEVICE_PATH_PROTOCOL *path ) {
 	}
 
 	/* No VLAN device path found */
+	return 0;
+}
+
+/**
+ * Get IP address family from device path
+ *
+ * @v path		Device path
+ * @ret family		Address family, or 0 if not recognised
+ */
+unsigned int efi_path_family ( EFI_DEVICE_PATH_PROTOCOL *path ) {
+	EFI_DEVICE_PATH_PROTOCOL *next;
+
+	/* Search for IP address device path */
+	for ( ; ( next = efi_path_next ( path ) ) ; path = next ) {
+		if ( path->Type == MESSAGING_DEVICE_PATH ) {
+			if ( path->SubType == MSG_IPv4_DP ) {
+				return AF_INET;
+			} else if ( path->SubType == MSG_IPv6_DP ) {
+				return AF_INET6;
+			}
+		}
+	}
+
+	/* No IP address device path found */
 	return 0;
 }
 
@@ -1103,7 +1128,9 @@ static int efi_path_net_probe ( struct net_device *netdev, void *priv ) {
 	struct efi_path_settings *pathsets = priv;
 	struct settings *settings = &pathsets->settings;
 	EFI_DEVICE_PATH_PROTOCOL *path = efi_loaded_image_path;
+	const char *name;
 	unsigned int vlan;
+	unsigned int family;
 	void *mac;
 	int rc;
 
@@ -1111,6 +1138,7 @@ static int efi_path_net_probe ( struct net_device *netdev, void *priv ) {
 	pathsets->path = path;
 	mac = efi_path_mac ( path );
 	vlan = efi_path_vlan ( path );
+	family = efi_path_family ( path );
 	if ( ( mac == NULL ) ||
 	     ( memcmp ( mac, netdev->ll_addr,
 			netdev->ll_protocol->ll_addr_len ) != 0 ) ||
@@ -1123,11 +1151,24 @@ static int efi_path_net_probe ( struct net_device *netdev, void *priv ) {
 	/* Mark network device to be opened automatically */
 	netdev->state |= NETDEV_AUTO_OPEN;
 
-	/* Never override a real DHCP settings block */
-	if ( find_child_settings ( netdev_settings ( netdev ),
-				   DHCP_SETTINGS_NAME ) ) {
-		DBGC ( settings, "EFI path %s not overriding %s DHCP "
-		       "settings\n", efi_devpath_text ( path ), netdev->name );
+	/* Determine settings block name */
+	switch ( family ) {
+	case AF_INET:
+		name = DHCP_SETTINGS_NAME;
+		break;
+	case AF_INET6:
+		name = NDP_SETTINGS_NAME;
+		break;
+	default:
+		DBGC ( settings, "EFI path %s has no IP address\n",
+		       efi_devpath_text ( path ) );
+		return 0;
+	}
+
+	/* Never override a real settings block */
+	if ( find_child_settings ( netdev_settings ( netdev ), name ) ) {
+		DBGC ( settings, "EFI path %s not overriding %s.%s settings\n",
+		       efi_devpath_text ( path ), netdev->name, name );
 		return 0;
 	}
 
@@ -1135,14 +1176,14 @@ static int efi_path_net_probe ( struct net_device *netdev, void *priv ) {
 	settings_init ( settings, &efi_path_settings_operations,
 			&netdev->refcnt, NULL );
 	if ( ( rc = register_settings ( settings, netdev_settings ( netdev ),
-					DHCP_SETTINGS_NAME ) ) != 0 ) {
-		DBGC ( settings, "EFI path %s could not register for %s: %s\n",
-		       efi_devpath_text ( path ), netdev->name,
+					name ) ) != 0 ) {
+		DBGC ( settings, "EFI path %s could not register %s.%s: %s\n",
+		       efi_devpath_text ( path ), netdev->name, name,
 		       strerror ( rc ) );
 		return rc;
 	}
-	DBGC ( settings, "EFI path %s registered for %s\n",
-	       efi_devpath_text ( path ), netdev->name );
+	DBGC ( settings, "EFI path %s registered %s.%s\n",
+	       efi_devpath_text ( path ), netdev->name, name );
 
 	return 0;
 }
