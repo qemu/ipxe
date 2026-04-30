@@ -2145,10 +2145,11 @@ hwrm_func_t bring_up_nic[] = {
 	NULL,
 };
 
-int bnxt_hwrm_run ( hwrm_func_t cmds[], struct bnxt *bp )
+int bnxt_hwrm_run ( hwrm_func_t cmds[], struct bnxt *bp, int flag )
 {
 	hwrm_func_t *ptr;
 	int ret;
+	u8 Status = 0;
 
 	for ( ptr = cmds; *ptr; ++ptr ) {
 		memset ( ( void * ) REQ_DMA_ADDR ( bp ),  0, REQ_BUFFER_SIZE );
@@ -2156,17 +2157,23 @@ int bnxt_hwrm_run ( hwrm_func_t cmds[], struct bnxt *bp )
 		ret = ( *ptr ) ( bp );
 		if ( ret ) {
 			DBGP ( "- %s (  ): Failed\n", __func__ );
-			return STATUS_FAILURE;
+			Status = STATUS_FAILURE;
+
+			// Initialization path failure,
+			// return failure immediately
+			// else cleanup the resources
+			if ( flag )
+				return STATUS_FAILURE;
 		}
 	}
-	return STATUS_SUCCESS;
+	return Status;
 }
 
-#define bnxt_down_chip( bp )	bnxt_hwrm_run ( bring_down_chip, bp )
-#define bnxt_up_chip( bp )	bnxt_hwrm_run ( bring_up_chip, bp )
-#define bnxt_down_nic( bp )	bnxt_hwrm_run ( bring_down_nic, bp )
-#define bnxt_up_nic( bp )	bnxt_hwrm_run ( bring_up_nic, bp )
-#define bnxt_up_init( bp )	bnxt_hwrm_run ( bring_up_init, bp )
+#define bnxt_down_chip( bp )	bnxt_hwrm_run ( bring_down_chip, bp, 0 )
+#define bnxt_up_chip( bp )	bnxt_hwrm_run ( bring_up_chip, bp, 1 )
+#define bnxt_down_nic( bp )	bnxt_hwrm_run ( bring_down_nic, bp, 0 )
+#define bnxt_up_nic( bp )	bnxt_hwrm_run ( bring_up_nic, bp, 1 )
+#define bnxt_up_init( bp )	bnxt_hwrm_run ( bring_up_init, bp, 1 )
 
 static int bnxt_open ( struct net_device *dev )
 {
