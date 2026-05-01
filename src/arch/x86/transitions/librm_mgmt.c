@@ -21,6 +21,13 @@ FILE_LICENCE ( GPL2_OR_LATER_OR_UBDL );
  *
  */
 
+/* Calling convention used by interrupt wrapper */
+#ifdef __x86_64__
+#define __intrcall
+#else
+#define __intrcall __attribute__ (( regparm ( 3 ) ))
+#endif
+
 /** The interrupt wrapper */
 extern char interrupt_wrapper[];
 
@@ -247,9 +254,8 @@ interrupt_dump ( int intr, struct interrupt_frame32 *frame32,
  * @v frame64		64-bit interrupt wrapper stack frame (or NULL)
  * @v frame		Interrupt wrapper stack frame
  */
-void __attribute__ (( regparm ( 3 ) ))
-interrupt ( int intr, struct interrupt_frame32 *frame32,
-	    struct interrupt_frame64 *frame64 ) {
+__intrcall void interrupt ( int intr, struct interrupt_frame32 *frame32,
+			    struct interrupt_frame64 *frame64 ) {
 	struct profiler *profiler = interrupt_profiler ( intr );
 	uint32_t discard_eax;
 
