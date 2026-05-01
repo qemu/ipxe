@@ -13,7 +13,7 @@ FILE_SECBOOT ( PERMITTED );
 #define ASM_NO_PREFIX "c"
 
 /** Declare a function with standard calling conventions */
-#define __asmcall __attribute__ (( regparm(0) ))
+#define __asmcall
 
 /** Declare a function with libgcc implicit linkage */
 #define __libgcc
