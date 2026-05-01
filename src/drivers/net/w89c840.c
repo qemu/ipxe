@@ -682,9 +682,7 @@ static int w89c840_probe ( struct nic *nic, struct pci_device *p ) {
 
     DBG ( "Ethernet addr: %s\n", eth_ntoa ( nic->node_addr ) );
 
-#if defined(W89C840_DEBUG)
-    printf("winbond-840: EEPROM checksum %hX, got eeprom", sum);
-#endif
+    DBG ( "winbond-840: EEPROM checksum %hX, got eeprom", sum );
 
     /* Reset the chip to erase previous misconfiguration.
        No hold time required! */
